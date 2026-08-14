@@ -3032,16 +3032,17 @@ function makeCollapsible(cardEl, { defaultOpen = true } = {}) {
     cardEl.classList.toggle("card-collapsed");
   });
 }
+// "全部记录"/"消耗汇总"/"物品设置"这三张卡片本来就各自带了一个"展开"/
+// "展开日历"/"管理"按钮控制自己最占地方的那部分内容(日历/表单)——之前
+// 又在外层加了一圈整卡折叠,变成两层收放叠在一起:外层收起时按钮跟着被藏起来,
+// 外层展开后内层那个按钮控制的内容还是照原样藏着,点了跟没点一样。这三张卡
+// 不需要外层折叠,只留它们本来就有的那一个就够了。
 ["stockSummaryCard", "resultCard"].forEach((id) => makeCollapsible(document.getElementById(id), { defaultOpen: true }));
-document.getElementById("itemsSettingsCard") && makeCollapsible(document.getElementById("itemsSettingsCard"), { defaultOpen: false });
-// "今天的记录"/"全部记录"/"消耗汇总"三张卡片在 HTML 里没有固定 id,按
-// #view-detail 里的第 3/5/6 张卡片取(第 1 张是 currencyCard,没有 h2,
-// makeCollapsible 会自己跳过)。
+// "今天的记录"在 HTML 里没有固定 id,按 #view-detail 里的第 3 张卡片取
+// (第 1 张是 currencyCard,没有 h2,makeCollapsible 会自己跳过)。
 (function initRemainingCollapsibleCards() {
   const cards = document.querySelectorAll("#view-detail > .card");
   makeCollapsible(cards[2], { defaultOpen: true });  // 今天的记录
-  makeCollapsible(cards[4], { defaultOpen: false }); // 全部记录
-  makeCollapsible(cards[5], { defaultOpen: false }); // 消耗汇总
 })();
 
 // ---------- 启动:注册 service worker,尝试恢复上次登录,否则进登录页 ----------
