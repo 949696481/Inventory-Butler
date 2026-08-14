@@ -85,5 +85,15 @@
     <a class="cta" href="app/">进入库存管家 →</a>
     <p class="hint">打开后可点浏览器菜单"添加到主屏幕"，像 App 一样使用</p>
   </div>
+  <script>
+    // 早期版本曾经在根目录注册过 service worker,清一下残留注册/缓存,避免
+    // 旧版本一直挡在新内容前面(见 sw.js 里的说明)。
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
+    }
+    if ("caches" in window) {
+      caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+    }
+  </script>
 </body>
 </html>
