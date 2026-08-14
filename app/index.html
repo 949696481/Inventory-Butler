@@ -1,0 +1,3034 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>库存管家</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#161B33">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg-deep: #161B33;
+    --bg-mid: #1E2547;
+    --bg-light: #2B3566;
+    --gold: #C89B5C;
+    --gold-light: #E0C084;
+    --gold-dark: #A67B3D;
+    --paper: #F7F4EC;
+    --paper-dim: #EDE8DA;
+    --ink: #1E2A26;
+    --ink-dim: #5B6B65;
+    --danger: #B6543C;
+    --ok: #3E8368;
+    --radius: 18px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    background: var(--bg-deep);
+    background-image: radial-gradient(circle at 20% 0%, var(--bg-light) 0%, transparent 55%);
+    color: var(--ink);
+    min-height: 100vh;
+    /* viewport-fit=cover 让页面铺到刘海/圆角/Home 指示条底下,不加这个手机上
+       返回/退出按钮会紧贴屏幕边缘、很难点到——env() 在非全面屏设备上是 0,
+       不影响桌面浏览器。 */
+    padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+  header {
+    padding: calc(28px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px)) 20px calc(20px + env(safe-area-inset-left, 0px));
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  header #backBtn {
+    color: var(--paper);
+    font-size: 20px;
+    padding: 4px 8px 4px 0;
+    flex-shrink: 0;
+  }
+  header .header-titles { flex: 1; min-width: 0; }
+  header #manageBtn, header #accountsBtn, header #logoutBtn {
+    color: var(--paper);
+    background: rgba(247,244,236,0.12);
+    border-radius: 20px;
+    padding: 8px 14px;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  header .mark {
+    width: 44px; height: 44px; border-radius: 12px;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  }
+  header .mark img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  header h1 {
+    color: var(--paper);
+    font-size: 20px;
+    margin: 0;
+    letter-spacing: 0.3px;
+  }
+  header p {
+    color: rgba(247,244,236,0.6);
+    margin: 2px 0 0;
+    font-size: 13px;
+  }
+  main {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 0 16px;
+  }
+  .card {
+    background: var(--paper);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 14px;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card h2 .hint { font-size: 12px; color: var(--ink-dim); font-weight: 400; }
+  .hint { font-size: 12px; color: var(--ink-dim); }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--paper-dim);
+  }
+  .row:last-child { border-bottom: none; }
+  .row .name { flex: 1; font-size: 15px; }
+  .row .name small { display: block; color: var(--ink-dim); font-size: 12px; margin-top: 2px; }
+
+  button {
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+    background: none;
+  }
+  .btn-primary {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--gold-light), var(--gold-dark));
+    color: var(--bg-deep);
+    font-weight: 700;
+    font-size: 15px;
+    margin-top: 6px;
+  }
+  .btn-primary:disabled { opacity: 0.5; cursor: default; }
+  .btn-secondary {
+    width: 100%;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--paper-dim);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .btn-ghost {
+    background: none;
+    color: var(--gold-dark);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 8px;
+    flex-shrink: 0;
+  }
+  .btn-ghost.active { background: rgba(212,168,83,0.18); border-radius: 8px; }
+
+  .summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .stat {
+    background: var(--paper-dim);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .stat .label { font-size: 12px; color: var(--ink-dim); }
+  .stat .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .stat .value.cost { color: var(--danger); }
+
+  .item-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--paper-dim);
+    gap: 10px;
+  }
+  .item-line:last-child { border-bottom: none; }
+  .item-line .tag {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: rgba(62,131,104,0.12);
+    color: var(--ok);
+    flex-shrink: 0;
+  }
+  .item-line .tag.restock {
+    background: rgba(182,84,60,0.12);
+    color: var(--danger);
+  }
+
+  .config-body { display: none; margin-top: 10px; }
+  .config-body.open { display: block; }
+  .config-body input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--paper-dim); font-size: 13px; margin-bottom: 8px; }
+  .config-body label { font-size: 12px; color: var(--ink-dim); display: block; margin-bottom: 4px; }
+  .status-line { font-size: 12px; color: var(--ink-dim); margin-top: 8px; text-align: center; }
+  .status-line.error { color: var(--danger); }
+  .status-line.ok { color: var(--ok); }
+
+  .add-item-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .add-item-form input, .add-item-form select {
+    padding: 9px 10px;
+    border-radius: 10px;
+    border: 1.5px solid var(--paper-dim);
+    font-size: 13px;
+    background: #fff;
+  }
+  .add-item-form input.name { flex: 2; min-width: 90px; }
+  .add-item-form input.unit { flex: 1; min-width: 50px; }
+  .add-item-form input.price { flex: 1; min-width: 60px; }
+  .add-item-form select { flex: 1; min-width: 90px; }
+
+  .empty { text-align: center; color: var(--ink-dim); font-size: 13px; padding: 20px 0; }
+
+  #view-stores, #view-categories {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: calc(100vh - 140px);
+  }
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 16px;
+  }
+  .tile {
+    position: relative;
+    background: var(--paper-dim);
+    border-radius: 18px;
+    padding: 26px 12px;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+  .tile-avatar {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .tile-name { font-size: 15px; font-weight: 600; color: var(--ink); text-align: center; }
+  .tile-del {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: rgba(255,255,255,0.7);
+    color: var(--danger);
+    font-size: 16px;
+    font-weight: 700;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+  }
+
+  .entry-item { padding: 12px 0; border-bottom: 1px solid var(--paper-dim); }
+  .entry-item:last-child { border-bottom: none; }
+  .entry-item-name { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .entry-item-name small { display: block; color: var(--ink-dim); font-size: 12px; font-weight: 400; margin-top: 2px; }
+  .entry-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: 8px;
+  }
+  .entry-fields label { font-size: 11px; color: var(--ink-dim); display: flex; flex-direction: column; gap: 4px; }
+  .entry-fields input {
+    padding: 8px;
+    border-radius: 8px;
+    border: 1.5px solid var(--paper-dim);
+    font-size: 13px;
+  }
+
+  .history-row { cursor: pointer; }
+  .history-row .edited-at { font-size: 11px; color: var(--ink-dim); }
+
+  .entry-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .entry-table th, .entry-table td {
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--paper-dim);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .entry-table th { color: var(--ink-dim); font-weight: 600; font-size: 11px; }
+  .entry-table td.item-name-cell {
+    font-weight: 600;
+    position: sticky;
+    left: 0;
+    background: var(--paper);
+  }
+  .entry-table td.item-name-cell small { display: block; color: var(--ink-dim); font-size: 11px; font-weight: 400; }
+  .entry-table input {
+    width: 100%;
+    min-width: 72px;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1.5px solid var(--paper-dim);
+    font-size: 13px;
+  }
+
+  .field-row-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .field-row-actions button { font-size: 15px; padding: 4px 7px; color: var(--ink-dim); }
+  .field-row-actions button:disabled { opacity: 0.25; cursor: default; }
+
+  .stock-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
+  }
+  .stock-tile {
+    background: var(--paper-dim);
+    border-radius: 12px;
+    padding: 14px 10px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .stock-tile-name { font-size: 12px; color: var(--ink-dim); margin-bottom: 6px; }
+  .stock-tile-value { font-size: 20px; font-weight: 700; color: var(--ink); }
+  .stock-tile-value .unit { font-size: 11px; font-weight: 400; color: var(--ink-dim); margin-left: 3px; }
+  .stock-tile-hint { font-size: 10px; color: var(--gold-dark); margin-top: 6px; }
+  .stock-tile-more { display: flex; align-items: center; justify-content: center; }
+  .stock-tile-more .stock-tile-hint { color: var(--ink-dim); font-weight: 600; }
+
+  .item-search { position: relative; margin-bottom: 12px; }
+  .item-search input {
+    width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1.5px solid var(--paper-dim); font-size: 13px;
+  }
+  .item-search-dropdown {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+    background: var(--paper); border: 1.5px solid var(--paper-dim);
+    border-radius: 10px; box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+    max-height: 240px; overflow-y: auto; z-index: 20; display: none;
+  }
+  .item-search-option { padding: 10px 12px; font-size: 13px; cursor: pointer; }
+  .item-search-option:hover { background: var(--paper-dim); }
+  .item-search-empty { padding: 10px 12px; font-size: 12px; color: var(--ink-dim); }
+
+  .item-list-more-row td {
+    text-align: center; color: var(--gold-dark); font-weight: 600; cursor: pointer;
+  }
+
+  @keyframes itemJumpFlash {
+    0%, 30% { background: var(--gold-light); }
+    100% { background: transparent; }
+  }
+  .item-jump-highlight { animation: itemJumpFlash 1.8s ease; }
+  tr.item-jump-highlight td { animation: itemJumpFlash 1.8s ease; }
+
+  .calendar-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .calendar-nav button {
+    font-size: 18px;
+    padding: 4px 14px;
+    color: var(--ink);
+    background: var(--paper-dim);
+    border-radius: 8px;
+  }
+  .calendar-nav button:disabled { opacity: 0.3; cursor: default; }
+  .calendar-nav span { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .cal-weekday {
+    text-align: center;
+    font-size: 11px;
+    color: var(--ink-dim);
+    padding: 4px 0;
+  }
+  .cal-day {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--ink);
+    cursor: pointer;
+    position: relative;
+  }
+  .cal-day:hover { background: var(--paper-dim); }
+  .cal-day-today { font-weight: 700; border: 1.5px solid var(--gold-dark); }
+  .cal-day-has-data { background: rgba(62,131,104,0.10); }
+  .cal-day-future { color: var(--ink-dim); opacity: 0.35; cursor: default; }
+  .cal-day-future:hover { background: none; }
+  .cal-day-in-range { background: rgba(201,150,60,0.22); }
+  .cal-day-range-edge { background: var(--gold-dark); color: var(--paper); font-weight: 700; }
+  .cal-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--gold-dark);
+    margin-top: 2px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <button id="backBtn" style="display:none;">←</button>
+  <div class="mark"><img src="icon-192.png" alt="库存管家"></div>
+  <div class="header-titles">
+    <h1 id="headerTitle">库存管家</h1>
+    <p id="headerSubtitle">选择门店</p>
+  </div>
+  <button id="accountsBtn" style="display:none;">账号</button>
+  <button id="manageBtn" style="display:none;">管理</button>
+  <button id="logoutBtn" style="display:none;">退出</button>
+</header>
+
+<main>
+
+  <!-- 登录 / 首次设置管理员账号 -->
+  <div class="view" id="view-login">
+    <div class="card" id="registerAdminCard" style="display:none;">
+      <h2>设置管理员账号</h2>
+      <div class="config-body open">
+        <label>你的名字</label>
+        <input id="regDisplayName" placeholder="比如 Kevin">
+        <label>用户名</label>
+        <input id="regUsername" placeholder="登录用的用户名">
+        <label>密码</label>
+        <input id="regPassword" type="password" placeholder="设置密码">
+        <label>确认密码</label>
+        <input id="regPassword2" type="password" placeholder="再输入一次密码">
+        <button class="btn-primary" id="registerAdminBtn">创建管理员账号</button>
+        <div class="status-line" id="registerStatus"></div>
+      </div>
+    </div>
+    <div class="card" id="loginCard" style="display:none;">
+      <h2>登录</h2>
+      <div class="config-body open">
+        <label>用户名</label>
+        <input id="loginUsername" placeholder="用户名">
+        <label>密码</label>
+        <input id="loginPassword" type="password" placeholder="密码">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-dim);margin:8px 0 0;">
+          <input type="checkbox" id="rememberUsernameCheck" style="width:auto;margin:0;"> 记住用户名
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-dim);margin:4px 0 8px;">
+          <input type="checkbox" id="autoLoginCheck" style="width:auto;margin:0;"> 自动登录
+        </label>
+        <button class="btn-primary" id="loginBtn">登录</button>
+        <div class="status-line" id="loginStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 门店选择 -->
+  <div class="view" id="view-stores" style="display:none;">
+    <div class="card">
+      <h2>选择门店</h2>
+      <div class="tile-grid" id="storeTiles"></div>
+      <div class="config-body" id="addStoreForm" style="display:none;">
+        <label>新建门店名称</label>
+        <input id="newStoreName" placeholder="比如 MollyTea Palo Alto">
+        <button class="btn-secondary" id="saveStoreBtn">保存门店</button>
+        <div class="status-line" id="storeFormStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分类选择 -->
+  <div class="view" id="view-categories" style="display:none;">
+    <div class="card">
+      <h2>选择分类</h2>
+      <div class="tile-grid" id="categoryTiles"></div>
+      <div class="config-body" id="addCategoryForm" style="display:none;">
+        <label>新建分类名称</label>
+        <input id="newCategoryName" placeholder="比如 奶制品 / materials">
+        <button class="btn-secondary" id="saveCategoryBtn">保存分类</button>
+        <div class="status-line" id="categoryFormStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分类详情:每日录入 + 历史 + 物品/字段管理 -->
+  <div class="view" id="view-detail" style="display:none;">
+
+    <div class="card" id="currencyCard" style="display:none;padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="hint">结算货币(消耗金额按这个换算显示)</span>
+        <select id="settlementCurrencySelect"></select>
+      </div>
+      <div class="status-line" id="ratesStatus"></div>
+    </div>
+
+    <div class="card" id="stockSummaryCard" style="display:none;">
+      <h2>目前总库存</h2>
+      <div class="item-search" id="stockSummarySearch" style="display:none;">
+        <input type="text" id="stockSummarySearchInput" placeholder="搜索物品…">
+        <div class="item-search-dropdown" id="stockSummarySearchDropdown"></div>
+      </div>
+      <div id="stockSummary"></div>
+    </div>
+
+    <div class="card">
+      <h2><span>今天的记录 <span class="hint" id="dateLabel"></span></span> <button class="btn-ghost" id="manageFieldsBtn">管理字段</button></h2>
+      <div id="fieldsManage" style="display:none;margin-bottom:14px;">
+        <div id="currentFieldsList"></div>
+        <div class="add-item-form">
+          <input class="name" id="newFieldName" placeholder="字段名,如 早盘点">
+          <select id="newFieldType">
+            <option value="number">数字</option>
+            <option value="text">文字</option>
+          </select>
+          <select id="newFieldRole">
+            <option value="none">普通字段</option>
+            <option value="stock_check">库存盘点(算消耗用)</option>
+            <option value="incoming">进货量</option>
+          </select>
+        </div>
+        <button class="btn-secondary" id="addFieldBtn" style="margin-top:8px;">添加字段</button>
+        <div class="status-line" id="fieldFormStatus"></div>
+      </div>
+      <div id="noteEntrySection" style="display:none;margin-bottom:14px;">
+        <div id="noteEntryFields"></div>
+      </div>
+      <div class="item-search" id="entryTableSearch" style="display:none;">
+        <input type="text" id="entryTableSearchInput" placeholder="搜索物品…">
+        <div class="item-search-dropdown" id="entryTableSearchDropdown"></div>
+      </div>
+      <div id="entryTableWrap" style="overflow-x:auto;display:none;">
+        <table class="entry-table" id="entryTable">
+          <thead><tr id="entryTableHead"></tr></thead>
+          <tbody id="entryTableBody"></tbody>
+        </table>
+      </div>
+      <div id="noFieldsHint" class="empty" style="display:none;">这个分类还没有配置录入字段,点上面"管理字段"添加</div>
+      <div id="noItemsHint" class="empty" style="display:none;">还没有添加任何物品,请在下方"物品设置"里添加</div>
+      <button class="btn-primary" id="calcBtn" style="display:none;">计算今日消耗</button>
+      <button class="btn-primary" id="saveDirectBtn" style="display:none;">保存</button>
+      <div class="status-line" id="directSaveStatus"></div>
+    </div>
+
+    <div class="card" id="resultCard" style="display:none;">
+      <h2>今日消耗汇总</h2>
+      <div class="summary-grid">
+        <div class="stat">
+          <div class="label">消耗种类</div>
+          <div class="value" id="resCount">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">预计花费</div>
+          <div class="value cost" id="resCost">¥0.00</div>
+        </div>
+      </div>
+      <div id="resultLines" style="margin-top:12px;"></div>
+      <button class="btn-primary" id="saveBtn">保存记录</button>
+      <div class="status-line" id="saveStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2><span>全部记录</span> <span><button class="btn-ghost" id="refreshHistoryBtn">刷新</button> <button class="btn-ghost" id="toggleHistoryBtn">展开</button></span></h2>
+      <div id="historyCalendarBody" style="display:none;">
+        <div class="calendar-nav">
+          <button id="calPrevBtn">‹</button>
+          <span id="calMonthLabel"></span>
+          <button id="calNextBtn">›</button>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+        <div class="hint" style="text-align:center;margin-top:8px;">有记录的日期会标一个小圆点,点日期看当天详情</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span>消耗汇总</span> <button class="btn-ghost" id="toggleSummaryCalBtn">展开日历</button></h2>
+      <div class="quick-range-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="btn-ghost" id="summaryQuickTodayBtn">今日</button>
+        <button class="btn-ghost" id="summaryQuickLastWeekBtn">上周</button>
+        <button class="btn-ghost active" id="summaryQuickThisWeekBtn">本周</button>
+        <button class="btn-ghost" id="summaryQuickThisMonthBtn">本月</button>
+      </div>
+      <div id="summaryCalendarBody" style="display:none;">
+        <div class="calendar-nav">
+          <button id="summaryCalPrevBtn">‹</button>
+          <span id="summaryCalMonthLabel"></span>
+          <button id="summaryCalNextBtn">›</button>
+        </div>
+        <div class="calendar-grid" id="summaryCalendarGrid"></div>
+        <div class="hint" style="text-align:center;margin:8px 0;">点日期选起点,再点一次选终点;点同一天两次=只看这一天</div>
+      </div>
+      <div style="font-weight:700;text-align:center;margin:6px 0;" id="summaryRangeLabel"></div>
+      <div id="summaryList"></div>
+    </div>
+
+    <div class="card" id="itemsSettingsCard">
+      <h2>物品设置 <button class="btn-ghost" id="toggleItemsBtn">管理</button></h2>
+      <div id="itemsManage" style="display:none;">
+        <div id="itemsBulkDeleteBar" style="display:none;align-items:center;gap:10px;margin-bottom:8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            <input type="checkbox" id="itemsSelectAllCheckbox"> 全选
+          </label>
+          <span class="hint" id="itemsSelectedCount"></span>
+          <button class="btn-ghost" id="deleteSelectedItemsBtn" style="margin-left:auto;color:var(--danger);">删除选中</button>
+        </div>
+        <div id="currentItemsList"></div>
+        <div class="add-item-form">
+          <input class="name" id="newItemName" placeholder="名称,如 牛奶">
+          <input class="unit" id="newItemUnit" placeholder="单位,如 L">
+          <input class="price" id="newItemPrice" placeholder="单价" type="number" step="0.01">
+          <select class="price" id="newItemCurrency"></select>
+        </div>
+        <div id="newItemStartingStockRow" style="display:none;margin-top:8px;">
+          <input id="newItemStartingStock" type="number" step="0.01" placeholder="起始库存(可不填)" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--paper-dim);font-size:13px;">
+          <div class="hint" style="margin-top:4px;">填了这个,以后第一次真正盘点就能算出消耗;不填的话第一次盘点还是会显示"暂无消耗数据"</div>
+        </div>
+        <button class="btn-secondary" id="addItemBtn" style="margin-top:8px;">添加物品</button>
+
+        <div style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--paper-dim);">
+          <div style="font-weight:700;margin-bottom:4px;">从 Excel 批量导入</div>
+          <div class="hint" style="margin-bottom:8px;">
+            表格第一行当标题(会跳过),第一列是物品名称(必须),第二列单位、
+            第三列单价可以不填。库存不从表格导入,导入后请自己在"目前总库存"
+            里给每个物品设置库存。
+          </div>
+          <input type="file" id="importItemsFile" accept=".xlsx,.xls,.csv" style="display:none;">
+          <button class="btn-secondary" id="importItemsBtn">选择 Excel 文件导入</button>
+          <div class="status-line" id="importItemsStatus"></div>
+
+          <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--paper-dim);">
+            <div class="hint" style="margin-bottom:8px;">
+              表格格式很乱、列不固定、不想按上面的格式整理?可以用 AI 识别——
+              会把表格内容发给 Claude 解析,导入前一样会给你看一遍预览再确认。
+            </div>
+            <input type="file" id="aiImportItemsFile" accept=".xlsx,.xls,.csv" style="display:none;">
+            <button class="btn-ghost" id="aiImportItemsBtn">AI 智能导入(格式随意)</button>
+            <div class="status-line" id="aiImportItemsStatus"></div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px dashed var(--paper-dim);">
+          <div style="font-weight:700;margin-bottom:4px;">自定义条目</div>
+          <div class="hint" style="margin-bottom:8px;">跟物品无关、按天记录的自由文本,比如"当日营业额"或者"应到货/实际缺"备注</div>
+          <div id="currentNoteFieldsList"></div>
+          <input id="newNoteFieldName" placeholder="名称,如 当日营业额" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--paper-dim);font-size:13px;margin-top:4px;">
+          <button class="btn-secondary" id="addNoteFieldBtn" style="margin-top:8px;">添加自定义条目</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 账号管理(班长及以上可见):添加/删除账号,重置密码。班长/经理只能建
+       "员工"这一级、只能管自己门店的账号,管理员能建经理/班长/员工三级、
+       能管所有门店——具体哪些控件露出来由 loadAccounts() 按当前用户的角色决定。 -->
+  <div class="view" id="view-accounts" style="display:none;">
+    <div class="card">
+      <h2>门店账号</h2>
+      <div id="employeeUsersList"></div>
+      <div class="empty" id="noEmployeesHint" style="display:none;">还没有账号</div>
+    </div>
+    <div class="card" id="addAccountCard">
+      <h2>添加账号</h2>
+      <div class="config-body open">
+        <label>姓名</label>
+        <input id="newEmpDisplayName" placeholder="比如 小李">
+        <label>用户名</label>
+        <input id="newEmpUsername" placeholder="登录用户名">
+        <label>密码</label>
+        <input id="newEmpPassword" type="password" placeholder="设置密码">
+        <div id="newEmpRoleRow" style="display:none;">
+          <label>角色</label>
+          <select id="newEmpRole">
+            <option value="employee">员工</option>
+            <option value="shift_leader">班长</option>
+            <option value="manager">经理</option>
+          </select>
+        </div>
+        <div id="newEmpStoreRow">
+          <label>所属门店</label>
+          <select id="newEmpStore"></select>
+        </div>
+        <button class="btn-secondary" id="addEmployeeBtn">创建账号</button>
+        <div class="status-line" id="addEmployeeStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 某一天的详细记录:从日历点进某一天后展示 -->
+  <div class="view" id="view-day-detail" style="display:none;">
+    <div class="card">
+      <h2><span id="dayDetailTitle"></span> <button class="btn-ghost" id="deleteDayBtn" style="display:none;">删除这天</button></h2>
+      <div id="dayDetailList"></div>
+    </div>
+  </div>
+
+  <!-- 编辑面板:不属于任何一个 view,自己独立控制显示/隐藏,
+       这样不管当前在"分类详情"还是"某天详情"页面都能弹出编辑。 -->
+  <div class="card" id="editEntryCard" style="display:none;">
+    <h2><span>编辑记录 <span class="hint" id="editEntryHint"></span></span> <button class="btn-ghost" id="cancelEditBtn">取消</button></h2>
+    <div id="editEntryFields"></div>
+    <button class="btn-primary" id="saveEditBtn">保存修改</button>
+    <div class="status-line" id="editStatus"></div>
+    <button class="btn-ghost" id="toggleHistoryVersionsBtn" style="margin-top:10px;display:none;">历史版本</button>
+    <div id="entryHistoryList" style="display:none;margin-top:8px;"></div>
+  </div>
+
+</main>
+
+<script>
+// ---------- 状态(所有数据通过 Google Apps Script 后端读写,见 config.js 里的 API_BASE_URL) ----------
+let stores = [];
+let currentStore = null;
+let categories = [];
+let currentCategory = null;
+let items = [];
+let fields = [];              // 这个分类当前配置的录入字段 [{id,name,type,role}]
+let stockFieldId = null;      // fields 里 role==="stock_check" 的那个字段 id(可能没有)
+let incomingFieldId = null;   // fields 里 role==="incoming" 的那个字段 id(可能没有)
+let latestStockCheck = {};    // {itemId: 最新一次库存盘点数值}
+let todayInputs = {};         // {itemId: {fieldId: value}}
+let noteFields = [];          // 这个分类配置的自定义日级条目 [{id,name,order}],跟物品无关,一天一份自由文本
+let noteLogByDate = {};       // {dateStr: [{noteId, value, editedAt, editedBy}]}
+let lastComputed = null;
+let manageMode = false;
+let manageFieldsMode = false;
+let editingEntry = null;      // {date, itemId, itemName} 正在编辑的历史记录
+let editingIsQuickStockOverride = false; // true = 从"目前总库存"磁贴点进来的,保存要走 setTotalStock 而不是 saveLogEntries
+let editingIsNoteEntry = false; // true = 正在编辑一个自定义条目的值,保存要走 saveNoteEntries
+let settlementCurrency = "CNY"; // 这个分类当前选的结算货币
+let exchangeRates = null;      // {date, rates:{USD:0.14,...}} 1 结算货币 = rates[X] 个 X
+let ratesError = "";           // 汇率拉取失败时的提示
+let currentUser = null;        // {id, username, displayName, role, storeId, storeName?}
+let authToken = null;          // 登录后端发的 session token,每次请求都要带上
+// 四级权限,严格层级(管理员≥经理≥班长≥员工),跟 google-apps-script.gs 里的
+// ROLE_LEVELS 是同一份定义——前端这边只用来控制按钮显示/隐藏,真正拦权限的
+// 是后端,前端隐藏只是不让人误点。
+const ROLE_LEVELS = { admin: 4, manager: 3, shift_leader: 2, employee: 1 };
+const ROLE_LABELS = { admin: "管理员", manager: "经理", shift_leader: "班长", employee: "员工" };
+function myLevel() { return currentUser ? (ROLE_LEVELS[currentUser.role] || 0) : 0; }
+const isAdmin = () => myLevel() >= ROLE_LEVELS.admin;
+const isManagerUp = () => myLevel() >= ROLE_LEVELS.manager;
+const isShiftLeaderUp = () => myLevel() >= ROLE_LEVELS.shift_leader;
+// 跟后端存 edited_by 时用的值保持一致(session.display_name || session.username,
+// 见 google-apps-script.gs 的 saveLogEntries/saveNoteEntries 分支)——用来判断
+// "某一天某个人的记录"是不是当前登录的这个人自己的,决定要不要显示删除按钮。
+const myEditorName = () => !!currentUser && (currentUser.displayName || currentUser.username);
+
+// ---------- 后端调用(text/plain 发 POST 是为了躲开 CORS 预检,跟 google-apps-script.gs 的注释对应) ----------
+const SESSION_KEY = "inv_session_v1";
+
+function saveSession(token, user) {
+  authToken = token;
+  currentUser = user;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ token, user }));
+}
+
+function clearSession() {
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function loadSavedSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function handleAuthError(message) {
+  if (message === "请重新登录。") {
+    clearSession();
+    showView("login");
+    initLoginView();
+  }
+}
+
+async function apiGet(action, params) {
+  const url = new URL(API_BASE_URL);
+  url.searchParams.set("action", action);
+  if (authToken) url.searchParams.set("token", authToken);
+  Object.keys(params || {}).forEach(k => {
+    if (params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
+  });
+  const resp = await fetch(url.toString());
+  const data = await resp.json();
+  if (data.error) { handleAuthError(data.error); throw new Error(data.error); }
+  return data;
+}
+
+async function apiPost(action, payload) {
+  const body = Object.assign({ action, token: authToken }, payload || {});
+  const resp = await fetch(API_BASE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  if (data.error) { handleAuthError(data.error); throw new Error(data.error); }
+  return data;
+}
+
+// 支持的货币列表(常用的一小部分,不是全部 ISO 货币)
+const CURRENCIES = [
+  { code: "CNY", symbol: "¥", name: "人民币" },
+  { code: "USD", symbol: "$", name: "美元" },
+  { code: "EUR", symbol: "€", name: "欧元" },
+  { code: "GBP", symbol: "£", name: "英镑" },
+  { code: "JPY", symbol: "¥", name: "日元" },
+  { code: "HKD", symbol: "HK$", name: "港币" },
+  { code: "TWD", symbol: "NT$", name: "新台币" },
+  { code: "KRW", symbol: "₩", name: "韩元" },
+];
+function currencySymbol(code) {
+  const c = CURRENCIES.find(c => c.code === code);
+  return c ? c.symbol : code + " ";
+}
+function populateCurrencySelect(select) {
+  select.innerHTML = CURRENCIES.map(c => `<option value="${c.code}">${c.name} ${c.code}</option>`).join("");
+}
+
+// 跟桌面版/工资App店铺选择页一样的固定调色板:同一个 id 每次都算出同一个颜色
+const AVATAR_PALETTE = ["#0a6e5c", "#5b3aa0", "#b5541c", "#1c6fb5", "#8a1c4f", "#4a7c1c", "#a03434"];
+function avatarColor(key) {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) { hash = (hash * 31 + key.charCodeAt(i)) >>> 0; }
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+}
+
+const todayStr = () => {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+};
+
+// ---------- 视图切换(同一个页面内切换,不开新窗口/弹窗) ----------
+let currentDayLabel = "";
+
+function applyRoleUI() {
+  const canManage = isShiftLeaderUp();
+  const manageFieldsBtn = document.getElementById("manageFieldsBtn");
+  const itemsCard = document.getElementById("itemsSettingsCard");
+  const currencySelect = document.getElementById("settlementCurrencySelect");
+  if (manageFieldsBtn) manageFieldsBtn.style.display = canManage ? "inline-block" : "none";
+  if (itemsCard) itemsCard.style.display = canManage ? "block" : "none";
+  if (currencySelect) currencySelect.disabled = !canManage;
+}
+
+function showView(name) {
+  document.querySelectorAll(".view").forEach(v => v.style.display = "none");
+  document.getElementById("view-" + name).style.display = "block";
+  document.getElementById("editEntryCard").style.display = "none";
+  editingEntry = null;
+  const backBtn = document.getElementById("backBtn");
+  const manageBtn = document.getElementById("manageBtn");
+  const accountsBtn = document.getElementById("accountsBtn");
+  const logoutBtn = document.getElementById("logoutBtn");
+  const title = document.getElementById("headerTitle");
+  const subtitle = document.getElementById("headerSubtitle");
+  manageMode = false;
+  manageBtn.textContent = "管理";
+  manageBtn.style.display = "none";
+  // "账号管理"入口:四级都能进去看同事(2026-07-17 Kevin 要求员工也能互相
+  // 看到),只是页面里"添加账号"那张卡片会按权限再单独隐藏(见 loadAccounts)。
+  // 管理员是从"stores"(选门店)页面进;经理/班长/员工没有"选门店"这一步,
+  // 登录直接落在"categories"(选分类)页面,所以那个页面也要露出这个按钮。
+  accountsBtn.style.display = ((name === "stores" || name === "categories") && !!currentUser) ? "inline-block" : "none";
+  logoutBtn.style.display = (name !== "login" && currentUser) ? "inline-block" : "none";
+  if (name === "login") {
+    backBtn.style.display = "none";
+    title.textContent = "库存管家";
+    subtitle.textContent = "登录";
+  } else if (name === "stores") {
+    backBtn.style.display = "none";
+    manageBtn.style.display = isAdmin() ? "inline-block" : "none";
+    title.textContent = "库存管家";
+    subtitle.textContent = currentUser ? `${currentUser.displayName} · 选择门店` : "选择门店";
+  } else if (name === "categories") {
+    backBtn.style.display = isAdmin() ? "inline-block" : "none";
+    manageBtn.style.display = isShiftLeaderUp() ? "inline-block" : "none";
+    title.textContent = currentStore.name;
+    subtitle.textContent = "选择分类";
+  } else if (name === "detail") {
+    backBtn.style.display = "inline-block";
+    manageBtn.style.display = "none";
+    title.textContent = currentStore.name;
+    subtitle.textContent = currentCategory.name;
+  } else if (name === "day-detail") {
+    backBtn.style.display = "inline-block";
+    manageBtn.style.display = "none";
+    title.textContent = currentCategory.name;
+    subtitle.textContent = currentDayLabel;
+  } else if (name === "accounts") {
+    backBtn.style.display = "inline-block";
+    manageBtn.style.display = "none";
+    title.textContent = "账号管理";
+    subtitle.textContent = "门店账号";
+  }
+  applyRoleUI();
+}
+
+document.getElementById("backBtn").addEventListener("click", () => {
+  if (document.getElementById("view-day-detail").style.display !== "none") {
+    showView("detail");
+    loadItemsAndStock();
+    loadHistory();
+  } else if (document.getElementById("view-detail").style.display !== "none") {
+    showView("categories");
+    loadCategories();
+  } else if (document.getElementById("view-accounts").style.display !== "none") {
+    // 管理员是从"选门店"页面进"账号管理"的,回退去那边;经理/班长登录直接
+    // 落在"选分类"页面,没有"选门店"这一步可回,回退去"选分类"才对。
+    if (isAdmin()) { showView("stores"); loadStores(); }
+    else { showView("categories"); loadCategories(); }
+  } else if (document.getElementById("view-categories").style.display !== "none") {
+    showView("stores");
+    loadStores();
+  }
+});
+
+document.getElementById("manageBtn").addEventListener("click", () => {
+  manageMode = !manageMode;
+  document.getElementById("manageBtn").textContent = manageMode ? "完成" : "管理";
+  if (document.getElementById("view-stores").style.display !== "none") {
+    renderStoreTiles();
+  } else if (document.getElementById("view-categories").style.display !== "none") {
+    renderCategoryTiles();
+  }
+});
+
+document.getElementById("accountsBtn").addEventListener("click", () => {
+  showView("accounts");
+  loadAccounts();
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  try { await apiPost("logout", {}); } catch (e) { /* token 可能已经过期,忽略 */ }
+  clearSession();
+  currentStore = null;
+  document.getElementById("loginUsername").value = "";
+  document.getElementById("loginPassword").value = "";
+  // 主动退出登录就该真的退出——"自动登录"如果不清掉,下次一打开又直接
+  // 进去了,等于退出没生效。"记住用户名"留着没关系,不影响"已退出"这件事。
+  localStorage.removeItem(AUTOLOGIN_KEY);
+  showView("login");
+  await initLoginView();
+});
+
+// ---------- 门店选择 ----------
+async function loadStores() {
+  stores = (await apiGet("listStores", {})).stores;
+  renderStoreTiles();
+}
+
+function renderStoreTiles() {
+  const el = document.getElementById("storeTiles");
+  el.innerHTML = "";
+  if (stores.length === 0) {
+    el.innerHTML = `<div class="empty" style="grid-column:1/-1;">还没有门店,点右上角"管理"添加一个</div>`;
+  }
+  stores.forEach(s => {
+    const tile = document.createElement("div");
+    tile.className = "tile";
+    const initial = (s.name.trim().charAt(0) || "?").toUpperCase();
+    tile.innerHTML = `
+      ${manageMode ? '<button class="tile-del">×</button>' : ""}
+      <div class="tile-avatar" style="background:${avatarColor(s.id)};">${initial}</div>
+      <div class="tile-name">${s.name}</div>
+    `;
+    tile.addEventListener("click", () => { if (!manageMode) selectStore(s); });
+    if (manageMode) {
+      tile.querySelector(".tile-del").addEventListener("click", (ev) => { ev.stopPropagation(); deleteStore(s.id); });
+    }
+    el.appendChild(tile);
+  });
+  document.getElementById("addStoreForm").style.display = manageMode ? "block" : "none";
+}
+
+async function deleteStore(id) {
+  if (!confirm("删除这个门店?此操作会删除这个门店的所有分类/物品/记录数据,且无法恢复。")) return;
+  await apiPost("deleteStore", { storeId: id });
+  stores = (await apiGet("listStores", {})).stores;
+  renderStoreTiles();
+}
+
+async function selectStore(store) {
+  currentStore = store;
+  showView("categories");
+  await loadCategories();
+}
+
+document.getElementById("saveStoreBtn").addEventListener("click", async () => {
+  const name = document.getElementById("newStoreName").value.trim();
+  const statusEl = document.getElementById("storeFormStatus");
+  if (!name) { statusEl.className = "status-line error"; statusEl.textContent = "请输入门店名称"; return; }
+  try {
+    await apiPost("createStore", { name });
+    document.getElementById("newStoreName").value = "";
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    stores = (await apiGet("listStores", {})).stores;
+    renderStoreTiles();
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "保存失败: " + err.message;
+  }
+});
+
+// ---------- 分类选择 ----------
+async function loadCategories() {
+  const el = document.getElementById("categoryTiles");
+  el.innerHTML = `<div class="empty">加载中…</div>`;
+  try {
+    categories = (await apiGet("listCategories", { storeId: currentStore.id })).categories;
+    renderCategoryTiles();
+  } catch (err) {
+    el.innerHTML = `<div class="empty">加载失败: ${err.message}</div>`;
+  }
+}
+
+function renderCategoryTiles() {
+  const el = document.getElementById("categoryTiles");
+  el.innerHTML = "";
+  if (categories.length === 0) {
+    el.innerHTML = `<div class="empty" style="grid-column:1/-1;">还没有分类,点右上角"管理"添加一个</div>`;
+  }
+  categories.forEach(c => {
+    const tile = document.createElement("div");
+    tile.className = "tile";
+    const initial = (c.name.trim().charAt(0) || "?").toUpperCase();
+    tile.innerHTML = `
+      ${manageMode ? '<button class="tile-del">×</button>' : ""}
+      <div class="tile-avatar" style="background:${avatarColor(c.id)};">${initial}</div>
+      <div class="tile-name">${c.name}</div>
+    `;
+    tile.addEventListener("click", () => { if (!manageMode) selectCategory(c); });
+    if (manageMode) {
+      tile.querySelector(".tile-del").addEventListener("click", (ev) => { ev.stopPropagation(); deleteCategory(c.id); });
+    }
+    el.appendChild(tile);
+  });
+  document.getElementById("addCategoryForm").style.display = manageMode ? "block" : "none";
+}
+
+document.getElementById("saveCategoryBtn").addEventListener("click", async () => {
+  const name = document.getElementById("newCategoryName").value.trim();
+  const statusEl = document.getElementById("categoryFormStatus");
+  if (!name) { statusEl.className = "status-line error"; statusEl.textContent = "请输入分类名称"; return; }
+  statusEl.className = "status-line"; statusEl.textContent = "保存中…";
+  try {
+    await apiPost("createCategory", { storeId: currentStore.id, name });
+    document.getElementById("newCategoryName").value = "";
+    statusEl.textContent = "";
+    categories = (await apiGet("listCategories", { storeId: currentStore.id })).categories;
+    renderCategoryTiles();
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "保存失败: " + err.message;
+  }
+});
+
+async function deleteCategory(categoryId) {
+  const cat = categories.find(c => c.id === categoryId);
+  const name = cat ? cat.name : "";
+  const typed = prompt(`删除分类会连同它的所有字段/物品/历史记录一起删除,且无法恢复。\n确定要删除"${name}"吗?请输入分类名称确认:`);
+  if (typed === null) return;
+  if (typed !== name) { alert("输入的名称不匹配,已取消删除"); return; }
+  await apiPost("deleteCategory", { categoryId });
+  categories = (await apiGet("listCategories", { storeId: currentStore.id })).categories;
+  renderCategoryTiles();
+}
+
+async function selectCategory(cat) {
+  currentCategory = cat;
+  showView("detail");
+  document.getElementById("dateLabel").textContent = "今天 " + todayStr();
+  document.getElementById("resultCard").style.display = "none";
+  document.getElementById("editEntryCard").style.display = "none";
+  document.getElementById("itemsManage").style.display = "none";
+  manageFieldsMode = false;
+  document.getElementById("manageFieldsBtn").textContent = "管理字段";
+  document.getElementById("fieldsManage").style.display = "none";
+  editingEntry = null;
+  todayInputs = {};
+  stockSummaryExpanded = false;
+  entryTableExpanded = false;
+  selectedItemIdsForDelete.clear();
+  {
+    const { start, end } = computeQuickRange("ThisWeek");
+    summaryRangeStart = dateToStr(start);
+    summaryRangeEnd = dateToStr(end);
+    summaryPickingEnd = false;
+    summaryActiveQuick = "ThisWeek";
+    summaryCalViewDate = new Date();
+  }
+  updateQuickBtnActive();
+  // 切分类时把上一个分类残留的日历高亮/汇总清掉,不然在新数据拉回来之前
+  // 会闪一下"上一个分类选的区间",跟下面 calendarGrid 的"加载中"占位是同一个道理。
+  document.getElementById("summaryCalendarGrid").innerHTML = `<div class="empty" style="grid-column:1/-1;">加载中…</div>`;
+  document.getElementById("summaryRangeLabel").textContent = "";
+  document.getElementById("summaryList").innerHTML = "";
+
+  const calendarGrid = document.getElementById("calendarGrid");
+  calendarGrid.innerHTML = `<div class="empty" style="grid-column:1/-1;">加载中…</div>`;
+
+  // 六个请求同时发出去,不再一个个排队等——每个请求都要真的连一次 Google
+  // Apps Script,顺序等的话延迟是六个加起来,并发之后只等最慢的那一个。
+  // 拿到数据以后再按"字段 -> 物品 -> 结算货币 -> 历史记录"这个依赖顺序渲染
+  // (物品表格要用到字段列表,历史记录金额换算要用到结算货币)。
+  const [fieldsResult, itemsResult, currencyResult, logResult, noteFieldsResult, noteLogResult] = await Promise.allSettled([
+    fetchFields(cat.id),
+    fetchItemsAndStock(cat.id),
+    fetchSettlementCurrency(cat.id),
+    fetchLog(cat.id, ALL_HISTORY_DAYS),
+    fetchNoteFields(cat.id),
+    fetchNoteLog(cat.id, ALL_HISTORY_DAYS),
+  ]);
+
+  applyFields(fieldsResult.status === "fulfilled" ? fieldsResult.value : []);
+  applyNoteFields(noteFieldsResult.status === "fulfilled" ? noteFieldsResult.value : []);
+  applyNoteLog(noteLogResult.status === "fulfilled" ? noteLogResult.value : []);
+
+  if (itemsResult.status === "fulfilled") {
+    applyItemsAndStock(itemsResult.value);
+  } else {
+    document.getElementById("noItemsHint").style.display = "block";
+    document.getElementById("noItemsHint").textContent = "无法加载物品列表: " + itemsResult.reason.message;
+  }
+
+  applySettlementCurrency(currencyResult.status === "fulfilled" ? currencyResult.value : "CNY");
+  refreshExchangeRates(); // 汇率单独异步刷新,不阻塞录入/保存这些核心功能先显示出来
+
+  if (logResult.status === "fulfilled") {
+    applyLog(logResult.value);
+  } else {
+    calendarGrid.innerHTML = `<div class="empty" style="grid-column:1/-1;">加载失败: ${logResult.reason.message}</div>`;
+  }
+}
+
+// ---------- 结算货币 + 实时汇率 ----------
+async function fetchSettlementCurrency(categoryId) {
+  return (await apiGet("getSettlementCurrency", { categoryId })).currency;
+}
+
+function applySettlementCurrency(currency) {
+  settlementCurrency = currency;
+  const select = document.getElementById("settlementCurrencySelect");
+  populateCurrencySelect(select);
+  select.value = settlementCurrency;
+  document.getElementById("currencyCard").style.display = items.length > 0 ? "block" : "none";
+}
+
+async function loadSettlementCurrency() {
+  applySettlementCurrency(await fetchSettlementCurrency(currentCategory.id));
+  await refreshExchangeRates();
+}
+
+async function refreshExchangeRates() {
+  const statusEl = document.getElementById("ratesStatus");
+  statusEl.className = "status-line";
+  statusEl.textContent = "获取实时汇率中…";
+  try {
+    const data = await apiGet("getExchangeRates", { base: settlementCurrency });
+    exchangeRates = data;
+    ratesError = "";
+    statusEl.className = "status-line ok";
+    statusEl.textContent = `汇率更新于 ${data.date}(实时获取,每次都重新拉取,不会一直用旧汇率)`;
+  } catch (err) {
+    exchangeRates = null;
+    ratesError = "汇率获取失败(可能没联网): " + err.message;
+    statusEl.className = "status-line error";
+    statusEl.textContent = ratesError;
+  }
+  renderResultIfOpen();
+}
+
+document.getElementById("settlementCurrencySelect").addEventListener("change", async (e) => {
+  settlementCurrency = e.target.value;
+  await apiPost("setSettlementCurrency", { categoryId: currentCategory.id, currency: settlementCurrency });
+  await refreshExchangeRates();
+  await loadHistory();
+});
+
+// 把某个物品的金额(在它自己的采购货币里)换算成当前结算货币。
+// 换不了(没有汇率数据/找不到这个货币)就原样返回,并标一个 "?"。
+function convertAmount(amount, itemCurrency) {
+  if (amount === null || amount === undefined) return null;
+  if (!itemCurrency || itemCurrency === settlementCurrency) return { value: amount, ok: true };
+  if (!exchangeRates || !exchangeRates.rates) return { value: amount, ok: false, sourceCurrency: itemCurrency };
+  const rate = itemCurrency === settlementCurrency ? 1 : exchangeRates.rates[itemCurrency];
+  if (!rate) return { value: amount, ok: false, sourceCurrency: itemCurrency };
+  return { value: amount / rate, ok: true };
+}
+
+function formatConverted(amount, itemCurrency) {
+  const c = convertAmount(amount, itemCurrency);
+  if (c === null) return "";
+  if (!c.ok) return `${currencySymbol(c.sourceCurrency)}${amount.toFixed(2)}(未换算)`;
+  return `${currencySymbol(settlementCurrency)}${c.value.toFixed(2)}`;
+}
+
+function renderResultIfOpen() {
+  if (document.getElementById("resultCard").style.display !== "none" && lastComputed) {
+    computeToday();
+  }
+}
+
+// ---------- 分类详情:字段管理 ----------
+async function fetchFields(categoryId) {
+  return (await apiGet("listFields", { categoryId })).fields;
+}
+
+function applyFields(newFields) {
+  fields = newFields;
+  incomingFieldId = (fields.find(f => f.role === "incoming") || {}).id || null;
+  renderFieldsManageList();
+  updateFieldRoleOptions();
+}
+
+async function loadFields() {
+  applyFields(await fetchFields(currentCategory.id));
+}
+
+// 库存盘点/进货量每个分类只能有一个:已经存在的话,直接把对应选项禁用掉,
+// 而不是等用户选完了再报错——防呆比报错更直接。
+function updateFieldRoleOptions() {
+  const roleSelect = document.getElementById("newFieldRole");
+  const hasStock = fields.some(f => f.role === "stock_check");
+  const hasIncoming = fields.some(f => f.role === "incoming");
+  const stockOption = roleSelect.querySelector('option[value="stock_check"]');
+  const incomingOption = roleSelect.querySelector('option[value="incoming"]');
+  stockOption.disabled = hasStock;
+  incomingOption.disabled = hasIncoming;
+  stockOption.textContent = hasStock ? "库存盘点(已被其它字段占用)" : "库存盘点(算消耗用)";
+  incomingOption.textContent = hasIncoming ? "进货量(已被其它字段占用)" : "进货量";
+  if ((roleSelect.value === "stock_check" && hasStock) || (roleSelect.value === "incoming" && hasIncoming)) {
+    roleSelect.value = "none";
+  }
+}
+
+function renderFieldsManageList() {
+  const el = document.getElementById("currentFieldsList");
+  el.innerHTML = "";
+  const roleLabel = { stock_check: "库存盘点", incoming: "进货量", none: "普通字段" };
+  fields.forEach((f, idx) => {
+    const div = document.createElement("div");
+    div.className = "row";
+    div.innerHTML = `
+      <div class="name">${f.name} <small>${f.type === "number" ? "数字" : "文字"} · ${roleLabel[f.role] || "普通字段"}</small></div>
+      <div class="field-row-actions">
+        <button data-action="up" ${idx === 0 ? "disabled" : ""}>↑</button>
+        <button data-action="down" ${idx === fields.length - 1 ? "disabled" : ""}>↓</button>
+        <button class="btn-ghost" data-action="del">删除</button>
+      </div>
+    `;
+    div.querySelector('[data-action="up"]').addEventListener("click", () => moveField(f.id, -1));
+    div.querySelector('[data-action="down"]').addEventListener("click", () => moveField(f.id, 1));
+    div.querySelector('[data-action="del"]').addEventListener("click", () => deleteField(f.id));
+    el.appendChild(div);
+  });
+}
+
+async function moveField(fieldId, direction) {
+  const idx = fields.findIndex(f => f.id === fieldId);
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= fields.length) return;
+  const ids = fields.map(f => f.id);
+  const tmp = ids[idx]; ids[idx] = ids[newIdx]; ids[newIdx] = tmp;
+  await apiPost("reorderFields", { categoryId: currentCategory.id, fieldIds: ids });
+  await loadFields();
+  await loadItemsAndStock();
+}
+
+async function deleteField(fieldId) {
+  if (!confirm("删除这个字段?历史记录里这个字段的数据不会再显示,但不会真的清掉。")) return;
+  await apiPost("deleteField", { categoryId: currentCategory.id, fieldId });
+  await loadFields();
+  await loadItemsAndStock();
+}
+
+document.getElementById("manageFieldsBtn").addEventListener("click", () => {
+  manageFieldsMode = !manageFieldsMode;
+  document.getElementById("manageFieldsBtn").textContent = manageFieldsMode ? "完成" : "管理字段";
+  document.getElementById("fieldsManage").style.display = manageFieldsMode ? "block" : "none";
+});
+
+document.getElementById("addFieldBtn").addEventListener("click", async () => {
+  const name = document.getElementById("newFieldName").value.trim();
+  const type = document.getElementById("newFieldType").value;
+  const role = document.getElementById("newFieldRole").value;
+  const statusEl = document.getElementById("fieldFormStatus");
+  if (!name) { statusEl.className = "status-line error"; statusEl.textContent = "请输入字段名称"; return; }
+  try {
+    await apiPost("addField", { categoryId: currentCategory.id, name, fieldType: type, role });
+    document.getElementById("newFieldName").value = "";
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    await loadFields();
+    await loadItemsAndStock();
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "添加失败: " + err.message;
+  }
+});
+
+// ---------- 自定义日级条目(跟物品无关,一天一份自由文本,比如"当日营业额"/
+// "应到货备注")。管理入口在"物品设置"卡片里,渲染在"今天的记录"表格上方。----------
+async function fetchNoteFields(categoryId) {
+  return (await apiGet("listNoteFields", { categoryId })).noteFields;
+}
+
+function applyNoteFields(newNoteFields) {
+  noteFields = newNoteFields;
+  renderNoteFieldsManageList();
+  renderNoteEntrySection();
+}
+
+async function loadNoteFields() {
+  applyNoteFields(await fetchNoteFields(currentCategory.id));
+}
+
+async function fetchNoteLog(categoryId, days) {
+  return (await apiGet("getNoteLog", { categoryId, days })).noteLog;
+}
+
+function applyNoteLog(rows) {
+  noteLogByDate = {};
+  (rows || []).forEach(r => {
+    (noteLogByDate[r.date] = noteLogByDate[r.date] || []).push(r);
+  });
+  renderNoteEntrySection(); // 拿到数据后重新渲染,把"今天已经存过的值"预填进输入框
+}
+
+async function loadNoteLog() {
+  applyNoteLog(await fetchNoteLog(currentCategory.id, ALL_HISTORY_DAYS));
+}
+
+function renderNoteFieldsManageList() {
+  const el = document.getElementById("currentNoteFieldsList");
+  el.innerHTML = "";
+  noteFields.forEach(f => {
+    const div = document.createElement("div");
+    div.className = "row";
+    div.innerHTML = `<div class="name">${f.name}</div><button class="btn-ghost" data-action="del">删除</button>`;
+    div.querySelector('[data-action="del"]').addEventListener("click", () => deleteNoteFieldHandler(f.id));
+    el.appendChild(div);
+  });
+}
+
+async function deleteNoteFieldHandler(noteId) {
+  if (!confirm("删除这个自定义条目?已经记录的历史值不会再显示,但不会真的清掉。")) return;
+  await apiPost("deleteNoteField", { categoryId: currentCategory.id, noteId });
+  await loadNoteFields();
+}
+
+document.getElementById("addNoteFieldBtn").addEventListener("click", async () => {
+  const input = document.getElementById("newNoteFieldName");
+  const name = input.value.trim();
+  if (!name) return;
+  await apiPost("addNoteField", { categoryId: currentCategory.id, name });
+  input.value = "";
+  await loadNoteFields();
+});
+
+// 渲染"今天的记录"表格上方的自定义条目输入框——今天已经存过的值会预填进去,
+// 跟物品表格一起保存(见 saveNoteEntriesIfAny,由 saveToday/saveDirectly 调用)。
+function renderNoteEntrySection() {
+  const section = document.getElementById("noteEntrySection");
+  const container = document.getElementById("noteEntryFields");
+  if (noteFields.length === 0) { section.style.display = "none"; return; }
+  section.style.display = "block";
+  container.innerHTML = "";
+  const todayRows = noteLogByDate[todayStr()] || [];
+  noteFields.forEach(f => {
+    const existing = todayRows.find(r => String(r.noteId) === String(f.id));
+    const label = document.createElement("label");
+    label.style.cssText = "display:block;margin-bottom:8px;";
+    label.innerHTML = `${f.name}<input type="text" data-note="${f.id}" value="${existing ? existing.value : ""}" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--paper-dim);font-size:13px;margin-top:4px;">`;
+    container.appendChild(label);
+  });
+}
+
+function collectNoteValues() {
+  const values = {};
+  document.querySelectorAll("#noteEntryFields input").forEach(inp => {
+    values[inp.dataset.note] = inp.value;
+  });
+  return values;
+}
+
+async function saveNoteEntriesIfAny(date) {
+  if (noteFields.length === 0) return;
+  await apiPost("saveNoteEntries", { categoryId: currentCategory.id, date, values: collectNoteValues() });
+}
+
+// ---------- 长物品列表:搜索跳转 + 展开全部 ----------
+// 仓储这种分类物品可能有几十上百个,"目前总库存"磁贴和"今天的记录"表格默认
+// 都只显示前 ITEM_LIST_PAGE_SIZE 个,底部一个"展开全部"提示点了才露出剩下的;
+// 配一个搜索框,打字实时列出匹配的物品名,点一个就跳过去——如果当前是收起
+// 状态,先自动展开再滚动定位,不然目标节点根本不在 DOM 里,querySelector 找
+// 不到。两个列表(磁贴/表格行)各自独立一份展开状态和渲染函数,搜索框的
+// 输入/下拉/防抖交互靠 setupItemSearch 统一处理,只是"跳转到哪、怎么展开"
+// 这一部分通过参数区分。
+const ITEM_LIST_PAGE_SIZE = 20;
+let stockSummaryExpanded = false;
+let entryTableExpanded = false;
+
+function setupItemSearch(inputEl, dropdownEl, onJump) {
+  function closeDropdown() {
+    dropdownEl.style.display = "none";
+    dropdownEl.innerHTML = "";
+  }
+  function renderMatches() {
+    const q = inputEl.value.trim().toLowerCase();
+    if (!q) { closeDropdown(); return; }
+    const matches = items.filter(it => it.name.toLowerCase().includes(q)).slice(0, 8);
+    if (!matches.length) {
+      dropdownEl.innerHTML = `<div class="item-search-empty">没有匹配的物品</div>`;
+      dropdownEl.style.display = "block";
+      return;
+    }
+    dropdownEl.innerHTML = matches.map(it => `<div class="item-search-option" data-id="${it.id}">${it.name}</div>`).join("");
+    dropdownEl.style.display = "block";
+    dropdownEl.querySelectorAll(".item-search-option").forEach(opt => {
+      // mousedown 而不是 click——input 的 blur 会比 click 先触发,把 dropdown
+      // 提前关掉,选项就点不到了;mousedown 在 blur 之前发生,能抢先处理。
+      opt.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        onJump(opt.dataset.id);
+        inputEl.value = "";
+        closeDropdown();
+      });
+    });
+  }
+  inputEl.addEventListener("input", renderMatches);
+  inputEl.addEventListener("focus", renderMatches);
+  inputEl.addEventListener("blur", closeDropdown);
+}
+
+function jumpToStockTile(itemId) {
+  if (!stockSummaryExpanded) { stockSummaryExpanded = true; renderStockSummary(); }
+  const el = document.querySelector(`#stockSummary .stock-tile[data-item-id="${itemId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("item-jump-highlight");
+  setTimeout(() => el.classList.remove("item-jump-highlight"), 1800);
+}
+
+function jumpToEntryRow(itemId) {
+  if (!entryTableExpanded) { entryTableExpanded = true; renderItemRows(); }
+  const el = document.querySelector(`#entryTableBody tr[data-item-id="${itemId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("item-jump-highlight");
+  setTimeout(() => el.classList.remove("item-jump-highlight"), 1800);
+}
+
+// ---------- 分类详情:今日录入(字段是动态的,由这个分类自己配置)
+// 表格布局:字段名在最上面一行当表头,下面一行一个物品,类似 Excel。----------
+function renderItemRows() {
+  const tableWrap = document.getElementById("entryTableWrap");
+  const head = document.getElementById("entryTableHead");
+  const body = document.getElementById("entryTableBody");
+  const noItems = document.getElementById("noItemsHint");
+  const noFields = document.getElementById("noFieldsHint");
+  const calcBtn = document.getElementById("calcBtn");
+  const saveDirectBtn = document.getElementById("saveDirectBtn");
+  const searchWrap = document.getElementById("entryTableSearch");
+  head.innerHTML = "";
+  body.innerHTML = "";
+
+  if (fields.length === 0) {
+    noFields.style.display = "block";
+    noItems.style.display = "none";
+    tableWrap.style.display = "none";
+    searchWrap.style.display = "none";
+    calcBtn.style.display = "none";
+    saveDirectBtn.style.display = "none";
+    return;
+  }
+  noFields.style.display = "none";
+
+  if (items.length === 0) {
+    noItems.style.display = "block";
+    tableWrap.style.display = "none";
+    searchWrap.style.display = "none";
+    calcBtn.style.display = "none";
+    saveDirectBtn.style.display = "none";
+    return;
+  }
+  noItems.style.display = "none";
+  tableWrap.style.display = "block";
+  searchWrap.style.display = "block";
+
+  head.innerHTML = `<th>物品</th>` + fields.map(f => `<th>${f.name}</th>`).join("");
+
+  const visibleItems = entryTableExpanded ? items : items.slice(0, ITEM_LIST_PAGE_SIZE);
+  visibleItems.forEach(it => {
+    const prevVal = latestStockCheck[it.id];
+    const nameHint = stockFieldId
+      ? `<small>上次 ${prevVal !== undefined ? prevVal + it.unit : "暂无记录"}</small>`
+      : `<small>${currencySymbol(it.currency)}${Number(it.price).toFixed(2)}/${it.unit}</small>`;
+    const tr = document.createElement("tr");
+    tr.dataset.itemId = it.id;
+    tr.innerHTML = `<td class="item-name-cell">${it.name}${nameHint}</td>` +
+      fields.map(f => `<td><input type="${f.type === "number" ? "number" : "text"}" ${f.type === "number" ? 'step="1"' : ""} data-id="${it.id}" data-field="${f.id}"></td>`).join("");
+    body.appendChild(tr);
+  });
+
+  if (items.length > ITEM_LIST_PAGE_SIZE) {
+    const moreTr = document.createElement("tr");
+    moreTr.className = "item-list-more-row";
+    if (entryTableExpanded) {
+      moreTr.innerHTML = `<td colspan="${fields.length + 1}">收起</td>`;
+      moreTr.addEventListener("click", () => { entryTableExpanded = false; renderItemRows(); });
+    } else {
+      moreTr.innerHTML = `<td colspan="${fields.length + 1}">展开全部(还有 ${items.length - ITEM_LIST_PAGE_SIZE} 项)</td>`;
+      moreTr.addEventListener("click", () => { entryTableExpanded = true; renderItemRows(); });
+    }
+    body.appendChild(moreTr);
+  }
+
+  body.querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", e => {
+      const id = e.target.dataset.id, field = e.target.dataset.field;
+      todayInputs[id] = todayInputs[id] || {};
+      todayInputs[id][field] = e.target.value;
+    });
+  });
+
+  // 有没有配置"库存盘点"字段决定走"计算预览"还是直接"保存"
+  calcBtn.style.display = stockFieldId ? "block" : "none";
+  saveDirectBtn.style.display = stockFieldId ? "none" : "block";
+}
+
+function computeToday() {
+  const lines = [];
+  let totalConverted = 0;
+  let count = 0;
+  items.forEach(it => {
+    const inputs = todayInputs[it.id] || {};
+    const hasAnyInput = Object.keys(inputs).some(k => inputs[k] !== undefined && inputs[k] !== "");
+    if (!hasAnyInput) return; // 这个物品今天什么都没填
+
+    const stockValRaw = inputs[stockFieldId];
+    const hasStockVal = stockValRaw !== undefined && stockValRaw !== "" && !isNaN(parseFloat(stockValRaw));
+    const stockVal = hasStockVal ? parseFloat(stockValRaw) : null;
+    const incomingRaw = incomingFieldId ? inputs[incomingFieldId] : undefined;
+    const hasIncoming = incomingRaw !== undefined && incomingRaw !== "" && !isNaN(parseFloat(incomingRaw));
+    const incomingVal = hasIncoming ? parseFloat(incomingRaw) : 0;
+    const prevVal = latestStockCheck[it.id];
+
+    let consumed = null, cost = null, onlyIncoming = false;
+    if (hasStockVal && prevVal !== undefined) {
+      consumed = Number(prevVal) + incomingVal - stockVal;
+      cost = consumed * Number(it.price);
+      const converted = convertAmount(cost, it.currency);
+      if (converted && converted.ok) totalConverted += converted.value;
+      count++;
+    } else if (!hasStockVal && hasIncoming) {
+      // 只填了进货、没填库存盘点:这天算不出消耗,但进货量照样要保存并且
+      // 立刻加进总库存——不能因为没顺手盘点就把这行整个丢掉不存。
+      onlyIncoming = true;
+    }
+    lines.push({ id: it.id, name: it.name, unit: it.unit, currency: it.currency, consumed, cost, values: inputs, onlyIncoming, incomingVal });
+  });
+
+  lastComputed = { date: todayStr(), lines };
+
+  const resultCard = document.getElementById("resultCard");
+  resultCard.style.display = "block";
+  document.getElementById("resCount").textContent = count;
+  document.getElementById("resCost").textContent = currencySymbol(settlementCurrency) + totalConverted.toFixed(2);
+
+  const linesEl = document.getElementById("resultLines");
+  linesEl.innerHTML = "";
+  lines.forEach(l => {
+    const div = document.createElement("div");
+    div.className = "item-line";
+    if (l.onlyIncoming) {
+      div.innerHTML = `<span>${l.name} 进货 ${l.incomingVal}${l.unit}</span><span class="tag">已加入总库存·未填盘点,消耗待算</span>`;
+    } else if (l.consumed === null) {
+      div.innerHTML = `<span>${l.name}</span><span class="tag">暂无昨天数据,已记录今天基准</span>`;
+    } else if (l.consumed < 0) {
+      div.innerHTML = `<span>${l.name}</span><span class="tag restock">看起来补货了</span>`;
+    } else {
+      div.innerHTML = `<span>${l.name} 用了 ${l.consumed.toFixed(2)} ${l.unit}</span><span class="tag">${formatConverted(l.cost, l.currency)}</span>`;
+    }
+    linesEl.appendChild(div);
+  });
+}
+
+// saveLogEntries 如果发现"这个物品今天已经有人录过了"会先返回 needsConfirm,
+// 不是直接覆盖——这里统一弹一个 confirm 列出是谁、什么时候录的,确认了再带上
+// confirmOverwrite 重新提交一次。取消就返回 null,调用方按"没保存"处理。
+async function saveLogEntriesWithConfirm(payload) {
+  const result = await apiPost("saveLogEntries", payload);
+  if (!result.needsConfirm) return result;
+  const lines = result.conflicts.map(c => {
+    const t = c.editedAt ? new Date(c.editedAt).toLocaleString("zh-CN", { hour12: false }) : "未知时间";
+    return `${c.itemName}(由 ${c.editedBy} 于 ${t} 记录)`;
+  });
+  const ok = confirm(`以下物品今天已经有记录了:\n${lines.join("\n")}\n\n继续保存会覆盖这些记录(旧版本仍可在"历史版本"里找回)。是否继续?`);
+  if (!ok) return null;
+  return apiPost("saveLogEntries", Object.assign({}, payload, { confirmOverwrite: true }));
+}
+
+async function saveToday() {
+  const statusEl = document.getElementById("saveStatus");
+  if (!lastComputed) return;
+  statusEl.className = "status-line";
+  statusEl.textContent = "保存中…";
+  try {
+    const entries = lastComputed.lines.map(l => ({
+      itemId: l.id, itemName: l.name, values: l.values,
+      price: items.find(it => it.id === l.id).price
+    }));
+    const result = await saveLogEntriesWithConfirm({ categoryId: currentCategory.id, date: lastComputed.date, entries });
+    if (!result) { statusEl.className = "status-line"; statusEl.textContent = "已取消"; return; }
+    await saveNoteEntriesIfAny(lastComputed.date);
+    statusEl.className = "status-line ok";
+    statusEl.textContent = "已保存 ✓";
+    todayInputs = {};
+    document.getElementById("resultCard").style.display = "none";
+    await Promise.all([loadItemsAndStock(), loadHistory(), loadNoteLog()]); // 互不依赖,并发拉,不用排队等
+  } catch (err) {
+    statusEl.className = "status-line error";
+    statusEl.textContent = "保存失败: " + err.message;
+  }
+}
+
+async function saveDirectly() {
+  const statusEl = document.getElementById("directSaveStatus");
+  const entries = items
+    .filter(it => todayInputs[it.id])
+    .map(it => ({ itemId: it.id, itemName: it.name, values: todayInputs[it.id], price: it.price }));
+  const noteValues = collectNoteValues();
+  const hasAnyNote = Object.values(noteValues).some(v => v !== undefined && v !== null && v !== "");
+  // 物料类分类经常只填自定义条目("应到货/实际缺")、当天没有任何物品盘点——
+  // 不能因为物品表格是空的就整个拒绝保存,只有两边都没填才算"什么都没填"。
+  if (entries.length === 0 && !hasAnyNote) {
+    statusEl.className = "status-line error"; statusEl.textContent = "还没有填写任何内容";
+    return;
+  }
+  statusEl.className = "status-line"; statusEl.textContent = "保存中…";
+  try {
+    if (entries.length > 0) {
+      const result = await saveLogEntriesWithConfirm({ categoryId: currentCategory.id, date: todayStr(), entries });
+      if (!result) { statusEl.className = "status-line"; statusEl.textContent = "已取消"; return; }
+    }
+    await saveNoteEntriesIfAny(todayStr());
+    statusEl.className = "status-line ok"; statusEl.textContent = "已保存 ✓";
+    todayInputs = {};
+    renderItemRows();
+    await Promise.all([loadItemsAndStock(), loadHistory(), loadNoteLog()]); // 互不依赖,并发拉,不用排队等
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "保存失败: " + err.message;
+  }
+}
+
+async function fetchItemsAndStock(categoryId) {
+  return apiGet("listItems", { categoryId });
+}
+
+function applyItemsAndStock(data) {
+  items = data.items || [];
+  latestStockCheck = data.latestStockCheck || {};
+  stockFieldId = data.stockCheckFieldId || null;
+  // 没配置"库存盘点"字段的分类,起始库存填了也没地方存,直接不显示这个输入框。
+  document.getElementById("newItemStartingStockRow").style.display = stockFieldId ? "block" : "none";
+  renderItemRows();
+  renderManageList();
+  renderStockSummary();
+}
+
+async function loadItemsAndStock() {
+  try {
+    applyItemsAndStock(await fetchItemsAndStock(currentCategory.id));
+  } catch (err) {
+    document.getElementById("noItemsHint").style.display = "block";
+    document.getElementById("noItemsHint").textContent = "无法加载物品列表: " + err.message;
+  }
+}
+
+function renderStockSummary() {
+  const card = document.getElementById("stockSummaryCard");
+  const el = document.getElementById("stockSummary");
+  const searchWrap = document.getElementById("stockSummarySearch");
+  if (items.length === 0) {
+    card.style.display = "none";
+    searchWrap.style.display = "none";
+    return;
+  }
+  if (!stockFieldId) {
+    card.style.display = "block";
+    searchWrap.style.display = "none";
+    el.className = "";
+    el.innerHTML = `<div class="empty">这个分类还没有设置"库存盘点"字段,点"管理字段"添加一个才能开始自动算库存/消耗</div>`;
+    return;
+  }
+  card.style.display = "block";
+  searchWrap.style.display = "block";
+  el.className = "stock-grid";
+  el.innerHTML = "";
+  const canEdit = isShiftLeaderUp();
+  const visibleItems = stockSummaryExpanded ? items : items.slice(0, ITEM_LIST_PAGE_SIZE);
+  visibleItems.forEach(it => {
+    const val = latestStockCheck[it.id];
+    const tile = document.createElement("div");
+    tile.className = "stock-tile";
+    tile.dataset.itemId = it.id;
+    const hint = canEdit ? (val !== undefined ? "点击修改" : "暂无记录·点击设置") : (val !== undefined ? "" : "暂无记录");
+    tile.innerHTML = `
+      <div class="stock-tile-name">${it.name}</div>
+      <div class="stock-tile-value">${val !== undefined ? val : "--"}<span class="unit">${it.unit}</span></div>
+      <div class="stock-tile-hint">${hint}</div>
+    `;
+    // 直接改总库存要求班长及以上——员工正常录入当天盘点(走"今天的记录"表格)
+    // 照样会自动把新数值推进总库存,只是不能像这样绕开正常流程直接改这个数字。
+    if (canEdit) tile.addEventListener("click", () => editStockFor(it));
+    el.appendChild(tile);
+  });
+  if (items.length > ITEM_LIST_PAGE_SIZE) {
+    const moreTile = document.createElement("div");
+    moreTile.className = "stock-tile stock-tile-more";
+    if (stockSummaryExpanded) {
+      moreTile.innerHTML = `<div class="stock-tile-hint">收起</div>`;
+      moreTile.addEventListener("click", () => { stockSummaryExpanded = false; renderStockSummary(); });
+    } else {
+      moreTile.innerHTML = `<div class="stock-tile-hint">展开全部<br>(还有 ${items.length - ITEM_LIST_PAGE_SIZE} 项)</div>`;
+      moreTile.addEventListener("click", () => { stockSummaryExpanded = true; renderStockSummary(); });
+    }
+    el.appendChild(moreTile);
+  }
+}
+
+// 点"目前总库存"里的某个物品(仅管理员),直接改 total_stock 这个数字——
+// 复用编辑记录的同一套面板,但保存时走 setTotalStock,不是 saveLogEntries:
+// 这是"纠正现在库存应该是多少",不是"补一条新的消耗记录",所以不产生日志行、
+// 不算消耗。跟"编辑历史记录"(openEditEntry)共用同一个保存按钮,靠
+// editingIsQuickStockOverride 这个标记区分两条不同的保存路径。
+function editStockFor(item) {
+  document.getElementById("editEntryHint").textContent = "直接修改总库存(不会生成消耗记录)";
+  const container = document.getElementById("editEntryFields");
+  container.innerHTML = `<div class="entry-item-name">${item.name}</div><div class="entry-fields" id="editFieldsGrid"></div>`;
+  const grid = document.getElementById("editFieldsGrid");
+  const currentVal = latestStockCheck[item.id];
+  const stockField = fields.find(f => f.id === stockFieldId);
+  const label = document.createElement("label");
+  label.innerHTML = `${stockField ? stockField.name : "总库存"}<input type="number" step="1" data-field="${stockFieldId}" value="${currentVal !== undefined ? currentVal : ""}">`;
+  grid.appendChild(label);
+  editingEntry = { date: todayStr(), itemId: item.id, itemName: item.name };
+  editingIsQuickStockOverride = true;
+  editingIsNoteEntry = false;
+  document.getElementById("editStatus").className = "status-line";
+  document.getElementById("editStatus").textContent = "";
+  document.getElementById("editEntryCard").style.display = "block";
+  document.getElementById("editEntryCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  resetHistoryPanel();
+  // 直接改总库存不产生日志行,跟"历史版本"(那是日志记录的编辑历史)没关系,
+  // 显示这个按钮只会让人以为能查到什么,藏掉更清楚。
+  document.getElementById("toggleHistoryVersionsBtn").style.display = "none";
+}
+
+function formatDateLabel(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return `${y}-${m}-${d}`;
+}
+
+// "全部记录"是日历形式:哪天有记录标个点,点日期进当天详情。以后的日期
+// (今天之后)灰掉不能点——数据不可能存在于未来。
+const ALL_HISTORY_DAYS = 36500; // 约100年,相当于"不限制天数,拿全部历史"
+let historyRowsByDate = {}; // {dateStr: [rows]}
+let calendarViewDate = new Date(); // 日历当前显示的月份
+let currentDayDetailDate = null; // 当前在"某天详情"页看的是哪一天,删除按钮要用
+
+// "消耗汇总"是日历形式的区间选择(类似订酒店选日期):点一次定起点(同时临时
+// 当终点显示单日汇总),没点第二次前 summaryPickingEnd=true;再点一次定终点,
+// 点的日期比起点早就自动交换,保证 start<=end。
+let summaryRangeStart = null;   // "YYYY-MM-DD"
+let summaryRangeEnd = null;     // "YYYY-MM-DD"
+let summaryPickingEnd = false;
+let summaryCalViewDate = new Date(); // 消耗汇总日历当前显示的月份,跟"全部记录"日历各自独立
+let summaryActiveQuick = "ThisWeek"; // 当前高亮的快捷按钮;手动点日历选区间后设为 null
+
+async function fetchLog(categoryId, days) {
+  return (await apiGet("getLog", { categoryId, days })).log;
+}
+
+function applyLog(rows) {
+  historyRowsByDate = {};
+  (rows || []).forEach(r => {
+    historyRowsByDate[r.date] = historyRowsByDate[r.date] || [];
+    historyRowsByDate[r.date].push(r);
+  });
+  calendarViewDate = new Date();
+  renderCalendar();
+  renderSummaryCalendar();
+  renderSummary();
+}
+
+// ---------- 消耗汇总:日历区间选择(类似订酒店选日期),直接拿"全部记录"
+// 已经拉回来的数据在前端汇总,不用再单独打一次后端请求——同一份
+// historyRowsByDate,按日期区间筛一遍就行。
+function dateToStr(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function startOfWeek(d) {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay(); // 0=周日
+  const diff = day === 0 ? -6 : 1 - day; // 周一作为一周的开始
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+function endOfWeek(d) {
+  const s = startOfWeek(d);
+  return new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6);
+}
+
+// 快捷按钮的区间计算。"本周"/"本月"故意用 today 收尾而不是周日/月底——
+// 这样即使这周/这月还没登记完,汇总也是"到今天为止"的实际消耗,不会把
+// 未来几天(还没数据的日子)也框进选中区间里。"上周"是完整的一周,因为
+// 那一周已经完全过去了。
+function computeQuickRange(key) {
+  const t = new Date();
+  if (key === "Today") return { start: t, end: t };
+  if (key === "LastWeek") {
+    const thisWeekStart = startOfWeek(t);
+    const start = new Date(thisWeekStart.getFullYear(), thisWeekStart.getMonth(), thisWeekStart.getDate() - 7);
+    const end = new Date(thisWeekStart.getFullYear(), thisWeekStart.getMonth(), thisWeekStart.getDate() - 1);
+    return { start, end };
+  }
+  if (key === "ThisMonth") return { start: new Date(t.getFullYear(), t.getMonth(), 1), end: t };
+  return { start: startOfWeek(t), end: t }; // ThisWeek
+}
+
+function updateQuickBtnActive() {
+  ["Today", "LastWeek", "ThisWeek", "ThisMonth"].forEach(k => {
+    document.getElementById("summaryQuick" + k + "Btn").classList.toggle("active", summaryActiveQuick === k);
+  });
+}
+
+function applySummaryQuick(key) {
+  const { start, end } = computeQuickRange(key);
+  summaryRangeStart = dateToStr(start);
+  summaryRangeEnd = dateToStr(end);
+  summaryPickingEnd = false;
+  summaryActiveQuick = key;
+  summaryCalViewDate = new Date(end);
+  updateQuickBtnActive();
+  renderSummaryCalendar();
+  renderSummary();
+}
+
+document.getElementById("summaryQuickTodayBtn").addEventListener("click", () => applySummaryQuick("Today"));
+document.getElementById("summaryQuickLastWeekBtn").addEventListener("click", () => applySummaryQuick("LastWeek"));
+document.getElementById("summaryQuickThisWeekBtn").addEventListener("click", () => applySummaryQuick("ThisWeek"));
+document.getElementById("summaryQuickThisMonthBtn").addEventListener("click", () => applySummaryQuick("ThisMonth"));
+
+// 日历默认收起,只留快捷按钮 + 汇总数字——只有想选快捷按钮之外的具体日期区间
+// 才需要展开日历;收起状态下日历照样在后台正常 render(只是 display:none),
+// 展开的瞬间不会是空的。
+document.getElementById("toggleSummaryCalBtn").addEventListener("click", () => {
+  const body = document.getElementById("summaryCalendarBody");
+  const btn = document.getElementById("toggleSummaryCalBtn");
+  const show = body.style.display === "none";
+  body.style.display = show ? "block" : "none";
+  btn.textContent = show ? "收起日历" : "展开日历";
+});
+
+// 点日历里的某一天:第一次点定起点(同时先当成单日区间显示),第二次点定
+// 终点——点的日期比起点早就自动交换,保证 start<=end;再点第三次是新一轮
+// 选择(视为"下一次的第一次点")。
+function onSummaryDayClick(dateStr) {
+  if (!summaryPickingEnd) {
+    summaryRangeStart = dateStr;
+    summaryRangeEnd = dateStr;
+    summaryPickingEnd = true;
+  } else if (dateStr < summaryRangeStart) {
+    summaryRangeEnd = summaryRangeStart;
+    summaryRangeStart = dateStr;
+    summaryPickingEnd = false;
+  } else {
+    summaryRangeEnd = dateStr;
+    summaryPickingEnd = false;
+  }
+  summaryActiveQuick = null;
+  updateQuickBtnActive();
+  renderSummaryCalendar();
+  renderSummary();
+}
+
+function renderSummaryCalendar() {
+  const grid = document.getElementById("summaryCalendarGrid");
+  const label = document.getElementById("summaryCalMonthLabel");
+  const year = summaryCalViewDate.getFullYear();
+  const month = summaryCalViewDate.getMonth(); // 0-based
+  label.textContent = `${year}年${month + 1}月`;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  document.getElementById("summaryCalNextBtn").disabled = isCurrentMonth;
+
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  grid.innerHTML = "";
+  ["日", "一", "二", "三", "四", "五", "六"].forEach(w => {
+    const el = document.createElement("div");
+    el.className = "cal-weekday";
+    el.textContent = w;
+    grid.appendChild(el);
+  });
+  for (let i = 0; i < firstWeekday; i++) {
+    grid.appendChild(document.createElement("div"));
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateObj = new Date(year, month, d);
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const isFuture = dateObj > today;
+    const dayRows = historyRowsByDate[dateStr];
+    const inRange = summaryRangeStart && summaryRangeEnd && dateStr >= summaryRangeStart && dateStr <= summaryRangeEnd;
+    const isEdge = dateStr === summaryRangeStart || dateStr === summaryRangeEnd;
+    const cell = document.createElement("div");
+    cell.className = "cal-day"
+      + (isFuture ? " cal-day-future" : "")
+      + (dayRows ? " cal-day-has-data" : "")
+      + (dateStr === todayStr() ? " cal-day-today" : "")
+      + (inRange ? " cal-day-in-range" : "")
+      + (isEdge ? " cal-day-range-edge" : "");
+    cell.innerHTML = `<span>${d}</span>` + (dayRows ? '<div class="cal-dot"></div>' : "");
+    if (!isFuture) {
+      cell.addEventListener("click", () => onSummaryDayClick(dateStr));
+    }
+    grid.appendChild(cell);
+  }
+}
+
+document.getElementById("summaryCalPrevBtn").addEventListener("click", () => {
+  summaryCalViewDate = new Date(summaryCalViewDate.getFullYear(), summaryCalViewDate.getMonth() - 1, 1);
+  renderSummaryCalendar();
+});
+document.getElementById("summaryCalNextBtn").addEventListener("click", () => {
+  summaryCalViewDate = new Date(summaryCalViewDate.getFullYear(), summaryCalViewDate.getMonth() + 1, 1);
+  renderSummaryCalendar();
+});
+
+function renderSummary() {
+  const listEl = document.getElementById("summaryList");
+  if (!listEl || !currentCategory) return;
+  if (!summaryRangeStart) { listEl.innerHTML = ""; return; }
+  const startStr = summaryRangeStart, endStr = summaryRangeEnd || summaryRangeStart;
+  const fmt = (s) => { const [, m, d] = s.split("-").map(Number); return `${m}/${d}`; };
+  document.getElementById("summaryRangeLabel").textContent = startStr === endStr ? fmt(startStr) : `${fmt(startStr)} - ${fmt(endStr)}`;
+
+  const totalsByItem = {};
+  const order = [];
+  let grandTotal = 0;
+  Object.keys(historyRowsByDate).forEach(dateStr => {
+    if (dateStr < startStr || dateStr > endStr) return;
+    historyRowsByDate[dateStr].forEach(r => {
+      if (r.usage === null || r.usage === undefined) return;
+      if (!totalsByItem[r.itemId]) {
+        totalsByItem[r.itemId] = { name: r.itemName, usage: 0, costConverted: 0 };
+        order.push(r.itemId);
+      }
+      totalsByItem[r.itemId].usage += Number(r.usage);
+      const it = items.find(x => x.id === r.itemId);
+      const converted = convertAmount(r.cost, it ? it.currency : null);
+      if (converted && converted.ok) { totalsByItem[r.itemId].costConverted += converted.value; grandTotal += converted.value; }
+    });
+  });
+
+  listEl.innerHTML = "";
+  if (order.length === 0) {
+    listEl.innerHTML = `<div class="empty">这段时间没有消耗记录</div>`;
+    return;
+  }
+  order.forEach(itemId => {
+    const t = totalsByItem[itemId];
+    const it = items.find(x => x.id === itemId);
+    const row = document.createElement("div");
+    row.className = "item-line";
+    const tagClass = t.usage < 0 ? "tag restock" : "tag";
+    row.innerHTML = `<span>${t.name} 用了 ${t.usage.toFixed(2)} ${it ? it.unit : ""}</span><span class="${tagClass}">${currencySymbol(settlementCurrency)}${t.costConverted.toFixed(2)}</span>`;
+    listEl.appendChild(row);
+  });
+  const totalRow = document.createElement("div");
+  totalRow.style.cssText = "font-weight:700;border-top:2px solid var(--paper-dim);padding-top:10px;margin-top:4px;";
+  totalRow.innerHTML = `<span>合计</span><span>${currencySymbol(settlementCurrency)}${grandTotal.toFixed(2)}</span>`;
+  listEl.appendChild(totalRow);
+}
+
+async function loadHistory() {
+  try {
+    applyLog(await fetchLog(currentCategory.id, ALL_HISTORY_DAYS));
+  } catch (err) {
+    const grid = document.getElementById("calendarGrid");
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">加载失败: ${err.message}</div>`;
+  }
+}
+
+function renderCalendar() {
+  const grid = document.getElementById("calendarGrid");
+  const label = document.getElementById("calMonthLabel");
+  const year = calendarViewDate.getFullYear();
+  const month = calendarViewDate.getMonth(); // 0-based
+  label.textContent = `${year}年${month + 1}月`;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  document.getElementById("calNextBtn").disabled = isCurrentMonth;
+
+  const firstWeekday = new Date(year, month, 1).getDay(); // 0=周日
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  grid.innerHTML = "";
+  ["日", "一", "二", "三", "四", "五", "六"].forEach(w => {
+    const el = document.createElement("div");
+    el.className = "cal-weekday";
+    el.textContent = w;
+    grid.appendChild(el);
+  });
+  for (let i = 0; i < firstWeekday; i++) {
+    grid.appendChild(document.createElement("div"));
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateObj = new Date(year, month, d);
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const isFuture = dateObj > today;
+    const dayRows = historyRowsByDate[dateStr];
+    const cell = document.createElement("div");
+    cell.className = "cal-day"
+      + (isFuture ? " cal-day-future" : "")
+      + (dayRows ? " cal-day-has-data" : "")
+      + (dateStr === todayStr() ? " cal-day-today" : "");
+    cell.innerHTML = `<span>${d}</span>` + (dayRows ? '<div class="cal-dot"></div>' : "");
+    if (!isFuture) {
+      cell.addEventListener("click", () => openDayDetail(dateStr, dayRows || []));
+    }
+    grid.appendChild(cell);
+  }
+}
+
+document.getElementById("toggleHistoryBtn").addEventListener("click", () => {
+  const body = document.getElementById("historyCalendarBody");
+  const btn = document.getElementById("toggleHistoryBtn");
+  const show = body.style.display === "none";
+  body.style.display = show ? "block" : "none";
+  btn.textContent = show ? "收起" : "展开";
+});
+
+document.getElementById("calPrevBtn").addEventListener("click", () => {
+  calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() - 1, 1);
+  renderCalendar();
+});
+document.getElementById("calNextBtn").addEventListener("click", () => {
+  calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() + 1, 1);
+  renderCalendar();
+});
+
+document.getElementById("deleteDayBtn").addEventListener("click", async () => {
+  if (!currentDayDetailDate) return;
+  if (!confirm(`删除 ${formatDateLabel(currentDayDetailDate)} 这一天的所有记录?`)) return;
+  try {
+    await apiPost("deleteLogDay", { categoryId: currentCategory.id, date: currentDayDetailDate });
+    showView("detail");
+    // 删了这一天,受影响物品的总库存后端已经自动回退了(见 deleteLogDay 的
+    // recomputeTotalStockForItem)——这里得把"目前总库存"也刷一遍,不然界面
+    // 还停在删除前的旧数字上,得等下一次别的操作才会碰巧刷新。
+    await Promise.all([loadHistory(), loadItemsAndStock()]);
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
+});
+
+// 只删这一天里"某个人"那部分记录,其他人当天录的不受影响
+async function deleteDayByEditor(editedBy, count) {
+  if (!currentDayDetailDate) return;
+  const label = editedBy || "未知";
+  if (!confirm(`删除 ${formatDateLabel(currentDayDetailDate)} 由「${label}」录入/编辑的 ${count} 条记录?其他人当天的记录不受影响。`)) return;
+  try {
+    await apiPost("deleteLogDayByEditor", { categoryId: currentCategory.id, date: currentDayDetailDate, editedBy });
+    // openDayDetail 要用 loadHistory 拉回来的 historyRowsByDate,得等它先跑完;
+    // loadItemsAndStock 跟这个没关系,不用等 loadHistory,两个并发拉就行。
+    await Promise.all([loadHistory(), loadItemsAndStock()]);
+    openDayDetail(currentDayDetailDate, historyRowsByDate[currentDayDetailDate] || []);
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
+}
+
+// 管理员专用:在"某天详情"里每个人(一个编辑分组)的板块最下面加一个
+// "查看编辑历史"的小开关,点开才(懒加载,只查一次)去查这个人这一天实际
+// 存过的每一条——包括还留着的当前值和后来被覆盖掉的旧版本,按 editedBy 查,
+// 不是按"这个物品现在归谁"查:一个物品如果后来被别人重新存过,这个人当初
+// 存的那条照样要出现在他自己的记录里,不能因为"现在不是最新的了"就从他的
+// 历史里消失(2026-07-14 用真实数据测试时发现,按物品分别查历史只会显示
+// "现在这个值之前长什么样",经常查出来的是别人的旧版本,不是这个人自己
+// 存过的东西)。原来是每个物品各自一个"查看编辑历史",物品一多屏幕上全是
+// 重复的按钮;现在一个人只用点一次就能看到他这一天做过的所有事。
+function appendGroupHistoryToggle(listEl, group) {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "margin:6px 0 4px;";
+  const btn = document.createElement("button");
+  btn.className = "btn-ghost";
+  btn.style.cssText = "font-size:12px;padding:2px 8px;";
+  btn.textContent = "查看编辑历史";
+  const list = document.createElement("div");
+  list.style.cssText = "display:none;margin-top:6px;";
+  let loaded = false;
+  btn.addEventListener("click", async () => {
+    if (list.style.display !== "none") { list.style.display = "none"; return; }
+    list.style.display = "block";
+    if (loaded) return;
+    loaded = true;
+    list.innerHTML = `<div class="hint">加载中…</div>`;
+    try {
+      const { entries } = await apiGet("getDayHistoryByEditor", { categoryId: currentCategory.id, date: currentDayDetailDate, editedBy: group.editor });
+      if (!entries.length) { list.innerHTML = `<div class="hint">这天没有记录</div>`; return; }
+      list.innerHTML = "";
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:700;font-size:12px;margin-bottom:2px;";
+      title.textContent = "编辑历史";
+      list.appendChild(title);
+      // 按 editedAt 分组——同一次保存动作(可能同时存了好几个物品)是同一个
+      // 时间戳,算作一个"编辑事件"块,而不是每个物品各自一行。这样能清楚看出
+      // "这一版后来被覆盖了"还是"这就是当前值",不用逐条自己去对时间戳。
+      const byTime = [];
+      const groupByTime = {};
+      entries.forEach(h => {
+        const key = h.editedAt || "";
+        if (!groupByTime[key]) {
+          groupByTime[key] = { editedAt: h.editedAt, rows: [] };
+          byTime.push(groupByTime[key]);
+        }
+        groupByTime[key].rows.push(h);
+      });
+      byTime.sort((a, b) => new Date(b.editedAt) - new Date(a.editedAt));
+      byTime.forEach(block => {
+        const timeLabel = block.editedAt ? new Date(block.editedAt).toLocaleString("zh-CN", { hour12: false }) : "未知时间";
+        const allOverwritten = block.rows.every(r => !r.current);
+        const head = document.createElement("div");
+        head.style.cssText = "font-size:12px;font-weight:600;color:var(--ink);margin-top:8px;";
+        head.textContent = `${group.editor || "未知"} ${timeLabel}` + (allOverwritten ? " （已被覆盖）" : "");
+        list.appendChild(head);
+        block.rows.forEach(h => {
+          const fieldSummary = fields.map(f => {
+            const v = h.values && h.values[f.id];
+            return (v !== undefined && v !== null && v !== "") ? `${f.name}:${v}` : null;
+          }).filter(Boolean).join(" · ");
+          const item = document.createElement("div");
+          item.style.cssText = "font-size:11px;color:var(--ink-dim);padding:1px 0 1px 4px;";
+          item.textContent = `${h.itemName} ${fieldSummary || "(空)"}`;
+          list.appendChild(item);
+        });
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="status-line error">加载失败: ${err.message}</div>`;
+    }
+  });
+  wrap.appendChild(btn);
+  wrap.appendChild(list);
+  listEl.appendChild(wrap);
+}
+
+// 点进某一天:不是照抄"今天的记录"的原始字段,而是一份消耗总结——
+// 每个物品的消耗量+消耗金额,最后一行是当天总消耗。
+function openDayDetail(date, dayRows) {
+  currentDayLabel = formatDateLabel(date) + " 记录";
+  currentDayDetailDate = date;
+  showView("day-detail");
+  document.getElementById("dayDetailTitle").textContent = currentDayLabel;
+  const dayNotes = noteLogByDate[date] || [];
+  document.getElementById("deleteDayBtn").style.display = (isManagerUp() && (dayRows.length > 0 || dayNotes.length > 0)) ? "inline-block" : "none";
+  const listEl = document.getElementById("dayDetailList");
+  listEl.innerHTML = "";
+
+  // 自定义条目("当日营业额"/备注这类,跟物品无关)放在最前面,不管这天有没有
+  // 物品记录都显示——物料类分类经常只填了备注、当天没有任何物品盘点。
+  if (noteFields.length > 0) {
+    const notesHeader = document.createElement("div");
+    notesHeader.style.cssText = "font-weight:700;margin-bottom:8px;";
+    notesHeader.textContent = "当日备注";
+    listEl.appendChild(notesHeader);
+    noteFields.forEach(nf => {
+      const row = dayNotes.find(r => String(r.noteId) === String(nf.id));
+      const div = document.createElement("div");
+      div.className = "item-line history-row";
+      div.title = "点击编辑";
+      div.innerHTML = `<span>${nf.name}</span><span class="tag">${row ? row.value : "未填写"}</span>`;
+      div.addEventListener("click", () => openEditNoteEntry(date, nf, row ? row.value : ""));
+      listEl.appendChild(div);
+    });
+  }
+
+  if (dayRows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "这天没有记录";
+    listEl.appendChild(empty);
+  } else {
+    // 按记录人分组:同一天如果有多个人录入/编辑过,分开标注是谁的,而不是混在一起猜。
+    // 分组用的 key 用原始值(没有就是空字符串),跟后端删除时按 edited_by 匹配的逻辑
+    // 保持一致;"未知"只是给没有记录人的旧数据一个展示用的名字,不能拿去发请求。
+    const groups = [];
+    const groupByEditor = {};
+    dayRows.forEach(r => {
+      const key = r.editedBy || "";
+      if (!groupByEditor[key]) {
+        groupByEditor[key] = { editor: key, rows: [] };
+        groups.push(groupByEditor[key]);
+      }
+      groupByEditor[key].rows.push(r);
+    });
+    const showEditorHeaders = groups.length > 1;
+
+    // 每个人一个头,写"最后编辑于 X",不再每个物品下面各贴一遍同一个人同一个
+    // 时间——同一批保存的好几个物品,原来那样看起来像重复信息。用组内最晚的
+    // editedAt(理论上一批保存会是同一个时间,单条后续编辑过的话取那条更晚的)。
+    let dayTotal = 0;
+    groups.forEach(group => {
+      const latestEditedAt = group.rows.reduce((best, r) => (r.editedAt && (!best || r.editedAt > best)) ? r.editedAt : best, null);
+      const latestLabel = latestEditedAt ? new Date(latestEditedAt).toLocaleString("zh-CN", { hour12: false }) : "";
+      const header = document.createElement("div");
+      header.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;";
+      const label = document.createElement("span");
+      label.style.cssText = "font-weight:700;color:var(--ink);";
+      label.textContent = (group.editor || "未知") + (latestLabel ? ` 最后编辑于 ${latestLabel}` : "");
+      header.appendChild(label);
+      // 谁能删这一组:班长及以上能删任何人的(2026-07-17 权限分级后,不再是
+      // admin 专属);员工只能删自己那组——不管当天是不是只有一个人录入,
+      // 都该看到这个按钮,不该因为"只有一组"就完全不渲染(以前的条件是
+      // showEditorHeaders && isAdmin(),单人录入的天永远看不到删除入口)。
+      const canDeleteGroup = isShiftLeaderUp() || group.editor === myEditorName();
+      if (canDeleteGroup) {
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-ghost";
+        delBtn.style.cssText = "font-size:12px;padding:2px 8px;";
+        delBtn.textContent = isShiftLeaderUp() ? "删除这部分" : "删除我的记录";
+        delBtn.addEventListener("click", () => deleteDayByEditor(group.editor, group.rows.length));
+        header.appendChild(delBtn);
+      }
+      listEl.appendChild(header);
+
+      // 同一条记录可能既有进货又算出了消耗(比如牛奶今天进货70、晚盘点也填
+      // 了)——两边都要出现,不是二选一,所以先各自筛一遍,而不是共用一个循环。
+      const incomingRows = incomingFieldId
+        ? group.rows.filter(r => {
+            const v = (r.values || {})[incomingFieldId];
+            return v !== undefined && v !== null && v !== "" && !isNaN(Number(v)) && Number(v) !== 0;
+          })
+        : [];
+      const usageRows = group.rows.filter(r => {
+        if (r.usage !== null && r.usage !== undefined) return true;
+        // 只有进货、没有消耗数据的记录已经在"今日进货"里说明过了,这里不用
+        // 再重复一条"暂无消耗数据"——那条 tag 对着一个从没打算算消耗的记录
+        // 没有意义,只会让人以为是漏填了盘点。
+        return !incomingRows.includes(r);
+      });
+
+      if (incomingRows.length > 0) {
+        const incomingHeader = document.createElement("div");
+        incomingHeader.style.cssText = "font-weight:600;color:var(--ink-dim);font-size:13px;margin:8px 0 2px;";
+        incomingHeader.textContent = "今日进货";
+        listEl.appendChild(incomingHeader);
+        incomingRows.forEach(r => {
+          const it = items.find(x => x.id === r.itemId);
+          const incomingVal = Number((r.values || {})[incomingFieldId]);
+          const row = document.createElement("div");
+          row.className = "item-line history-row";
+          row.title = "点击编辑";
+          row.innerHTML = `<span>${r.itemName}</span><span class="tag">+${incomingVal}${it ? it.unit : ""}</span>`;
+          row.addEventListener("click", () => openEditEntry(r));
+          listEl.appendChild(row);
+        });
+      }
+
+      if (usageRows.length > 0) {
+        const usageHeader = document.createElement("div");
+        usageHeader.style.cssText = "font-weight:600;color:var(--ink-dim);font-size:13px;margin:8px 0 2px;";
+        usageHeader.textContent = "今日消耗";
+        listEl.appendChild(usageHeader);
+        usageRows.forEach(r => {
+          const it = items.find(x => x.id === r.itemId);
+          const row = document.createElement("div");
+          row.className = "item-line history-row";
+          row.title = "点击编辑";
+          if (r.usage !== null && r.usage !== undefined) {
+            const converted = convertAmount(r.cost, it ? it.currency : null);
+            if (converted && converted.ok) dayTotal += converted.value;
+            const tagClass = r.usage < 0 ? "tag restock" : "tag";
+            const tagText = r.usage < 0 ? "看起来补货了" : formatConverted(r.cost, it ? it.currency : null);
+            row.innerHTML = `<span>${r.itemName} 用了 ${Number(r.usage).toFixed(2)} ${it ? it.unit : ""}</span><span class="${tagClass}">${tagText}</span>`;
+          } else {
+            row.innerHTML = `<span>${r.itemName}</span><span class="tag">暂无消耗数据</span>`;
+          }
+          row.addEventListener("click", () => openEditEntry(r));
+          listEl.appendChild(row);
+        });
+      }
+
+      // 每个人一个"查看编辑历史",放在这个人这一整块(进货+消耗)的最下面——
+      // 不再每个物品各自一个,点开显示这个人当天动过的所有物品,不用一个个点开找。
+      // 班长及以上能看任何人的;员工能看自己的(方便核对自己到底改过什么)。
+      if (isShiftLeaderUp() || group.editor === myEditorName()) appendGroupHistoryToggle(listEl, group);
+    });
+    const totalRow = document.createElement("div");
+    totalRow.className = "item-line";
+    totalRow.style.cssText = "font-weight:700;border-top:2px solid var(--paper-dim);padding-top:10px;margin-top:4px;";
+    totalRow.innerHTML = `<span>今日总消耗</span><span>${currencySymbol(settlementCurrency)}${dayTotal.toFixed(2)}</span>`;
+    listEl.appendChild(totalRow);
+  }
+
+  // 不管这天有没有记录,都能给"还没记录的物品"补录——忘了当天登记的话,事后
+  // 回来点这一天补上就行,不用非得记得"今天必须录完"。复用 openEditEntry 同一套
+  // 保存面板,只是传一份 values 为空的记录进去,当"新增"用。
+  const recordedItemIds = new Set(dayRows.map(r => r.itemId));
+  const missingItems = items.filter(it => !recordedItemIds.has(it.id));
+  if (missingItems.length > 0) {
+    const addSection = document.createElement("div");
+    addSection.style.cssText = "margin-top:16px;padding-top:12px;border-top:1px dashed var(--paper-dim);";
+    const label = document.createElement("div");
+    label.style.cssText = "font-size:12px;color:var(--ink-dim);margin-bottom:8px;";
+    label.textContent = "还没有记录的物品(补录):";
+    addSection.appendChild(label);
+    missingItems.forEach(it => {
+      const btn = document.createElement("button");
+      btn.className = "btn-ghost";
+      btn.style.cssText = "margin:0 6px 6px 0;font-size:12px;padding:4px 10px;";
+      btn.textContent = "+ " + it.name;
+      btn.addEventListener("click", () => openEditEntry({ date: currentDayDetailDate, itemId: it.id, itemName: it.name, values: {} }));
+      addSection.appendChild(btn);
+    });
+    listEl.appendChild(addSection);
+  }
+}
+
+// ---------- 编辑一条历史记录:复用同一个 upsert,传一个过去的日期就是"编辑" ----------
+function openEditEntry(entry) {
+  document.getElementById("editEntryHint").textContent = entry.date;
+  const container = document.getElementById("editEntryFields");
+  container.innerHTML = `<div class="entry-item-name">${entry.itemName}</div><div class="entry-fields" id="editFieldsGrid"></div>`;
+  const grid = document.getElementById("editFieldsGrid");
+  fields.forEach(f => {
+    const val = entry.values && entry.values[f.id] !== undefined && entry.values[f.id] !== null ? entry.values[f.id] : "";
+    const label = document.createElement("label");
+    label.innerHTML = `${f.name}<input type="${f.type === "number" ? "number" : "text"}" ${f.type === "number" ? 'step="1"' : ""} data-field="${f.id}" value="${val}">`;
+    grid.appendChild(label);
+  });
+  editingEntry = { date: entry.date, itemId: entry.itemId, itemName: entry.itemName };
+  editingIsQuickStockOverride = false;
+  editingIsNoteEntry = false;
+  document.getElementById("editStatus").className = "status-line";
+  document.getElementById("editStatus").textContent = "";
+  document.getElementById("editEntryCard").style.display = "block";
+  document.getElementById("editEntryCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  resetHistoryPanel();
+}
+
+// ---------- 编辑一个自定义条目的当天值(day-detail 里点"当日备注"那一行)——
+// 走 saveNoteEntries,不产生 usage/cost,也没有"历史版本"面板(那个是给物品
+// 记录用的,自定义条目暂时不需要那么复杂)。----------
+function openEditNoteEntry(date, noteField, currentValue) {
+  document.getElementById("editEntryHint").textContent = date;
+  const container = document.getElementById("editEntryFields");
+  container.innerHTML = `<div class="entry-item-name">${noteField.name}</div><div class="entry-fields" id="editFieldsGrid"></div>`;
+  const grid = document.getElementById("editFieldsGrid");
+  const label = document.createElement("label");
+  label.innerHTML = `${noteField.name}<input type="text" data-note="${noteField.id}" value="${currentValue || ""}">`;
+  grid.appendChild(label);
+  editingEntry = { date: date, noteId: noteField.id };
+  editingIsQuickStockOverride = false;
+  editingIsNoteEntry = true;
+  document.getElementById("editStatus").className = "status-line";
+  document.getElementById("editStatus").textContent = "";
+  document.getElementById("editEntryCard").style.display = "block";
+  document.getElementById("editEntryCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  resetHistoryPanel();
+  document.getElementById("toggleHistoryVersionsBtn").style.display = "none";
+}
+
+// ---------- 编辑历史版本:改错了能退回去,不用只能靠记忆手动改回来 ----------
+function resetHistoryPanel() {
+  document.getElementById("toggleHistoryVersionsBtn").style.display = "inline-block";
+  document.getElementById("toggleHistoryVersionsBtn").textContent = "历史版本";
+  const listEl = document.getElementById("entryHistoryList");
+  listEl.style.display = "none";
+  listEl.innerHTML = "";
+}
+
+document.getElementById("toggleHistoryVersionsBtn").addEventListener("click", async () => {
+  const listEl = document.getElementById("entryHistoryList");
+  if (listEl.style.display !== "none") { listEl.style.display = "none"; return; }
+  if (!editingEntry) return;
+  listEl.style.display = "block";
+  listEl.innerHTML = `<div class="hint">加载中…</div>`;
+  try {
+    const { history } = await apiGet("getEntryHistory", { categoryId: currentCategory.id, itemId: editingEntry.itemId, date: editingEntry.date });
+    if (!history.length) { listEl.innerHTML = `<div class="hint">这条记录还没有被改过</div>`; return; }
+    listEl.innerHTML = "";
+    history.forEach(h => {
+      const row = document.createElement("div");
+      row.className = "item-line";
+      row.style.cssText = "align-items:flex-start;";
+      const timeLabel = h.editedAt ? new Date(h.editedAt).toLocaleString("zh-CN", { hour12: false }) : "";
+      const fieldSummary = fields.map(f => {
+        const v = h.values && h.values[f.id];
+        return (v !== undefined && v !== null && v !== "") ? `${f.name}:${v}` : null;
+      }).filter(Boolean).join(" · ");
+      const info = document.createElement("div");
+      info.innerHTML = `<div>${h.editedBy || "未知"} · ${timeLabel}</div><div class="hint">${fieldSummary || "(空)"}</div>`;
+      const restoreBtn = document.createElement("button");
+      restoreBtn.className = "btn-ghost";
+      restoreBtn.textContent = "恢复此版本";
+      restoreBtn.addEventListener("click", () => applyHistoryVersion(h));
+      row.appendChild(info);
+      row.appendChild(restoreBtn);
+      listEl.appendChild(row);
+    });
+  } catch (err) {
+    listEl.innerHTML = `<div class="status-line error">加载失败: ${err.message}</div>`;
+  }
+});
+
+// 恢复只是把历史值填回编辑表单,不直接保存——还得手动点"保存修改"确认,
+// 避免点一下"恢复"就误操作把当前数据覆盖掉。
+function applyHistoryVersion(h) {
+  document.querySelectorAll("#editFieldsGrid input").forEach(inp => {
+    const v = h.values && h.values[inp.dataset.field];
+    inp.value = (v !== undefined && v !== null) ? v : "";
+  });
+  document.getElementById("editStatus").className = "status-line";
+  document.getElementById("editStatus").textContent = "已填入历史版本,确认无误后点\"保存修改\"";
+}
+
+document.getElementById("cancelEditBtn").addEventListener("click", () => {
+  document.getElementById("editEntryCard").style.display = "none";
+  editingEntry = null;
+});
+
+document.getElementById("saveEditBtn").addEventListener("click", async () => {
+  if (!editingEntry) return;
+  const statusEl = document.getElementById("editStatus");
+  statusEl.className = "status-line"; statusEl.textContent = "保存中…";
+  try {
+    if (editingIsNoteEntry) {
+      const inp = document.querySelector("#editFieldsGrid input");
+      await apiPost("saveNoteEntries", {
+        categoryId: currentCategory.id, date: editingEntry.date,
+        values: { [editingEntry.noteId]: inp ? inp.value : "" },
+      });
+    } else if (editingIsQuickStockOverride) {
+      const inp = document.querySelector("#editFieldsGrid input");
+      const raw = inp ? inp.value : "";
+      await apiPost("setTotalStock", {
+        categoryId: currentCategory.id, itemId: editingEntry.itemId,
+        value: raw === "" ? null : parseFloat(raw),
+      });
+    } else {
+      const values = {};
+      document.querySelectorAll("#editFieldsGrid input").forEach(inp => {
+        values[inp.dataset.field] = inp.value;
+      });
+      const item = items.find(it => it.id === editingEntry.itemId);
+      // 这里走的是"编辑记录",用户点进来的时候已经看到了当前这条记录本身,
+      // 不用再弹一次"已经有记录了"的确认——直接带 confirmOverwrite 跳过检查。
+      await apiPost("saveLogEntries", {
+        categoryId: currentCategory.id, date: editingEntry.date, confirmOverwrite: true,
+        entries: [{ itemId: editingEntry.itemId, itemName: editingEntry.itemName, values, price: item ? item.price : 0 }]
+      });
+    }
+    statusEl.className = "status-line ok"; statusEl.textContent = "已保存修改 ✓";
+    document.getElementById("editEntryCard").style.display = "none";
+    const wasQuickOverride = editingIsQuickStockOverride;
+    const wasNoteEntry = editingIsNoteEntry;
+    const editedDate = editingEntry.date;
+    editingEntry = null;
+    editingIsNoteEntry = false;
+    // 三条互不依赖,按实际改的是哪种数据分别刷新,不用排队等。
+    if (wasNoteEntry) {
+      await loadNoteLog();
+      if (currentDayDetailDate === editedDate) openDayDetail(editedDate, historyRowsByDate[editedDate] || []);
+    } else {
+      await Promise.all(wasQuickOverride ? [loadItemsAndStock()] : [loadItemsAndStock(), loadHistory()]);
+    }
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "保存失败: " + err.message;
+  }
+});
+
+// ---------- 物品管理:多选批量删除 ----------
+// Kevin 批量导入后发现名字导错(比如把序号列当成名称导进去了)提的需求——
+// 删几十个物品如果一个一个点"删除"要确认几十次太折腾,这里加个多选 + 一次性
+// 批量删。锁定的物品不出 checkbox——单个删除本来就会被锁定挡住,批量这边
+// 直接不给勾,而不是让人勾了却发现删不掉。
+let selectedItemIdsForDelete = new Set();
+
+function updateBulkDeleteBar() {
+  const bar = document.getElementById("itemsBulkDeleteBar");
+  const countEl = document.getElementById("itemsSelectedCount");
+  const selectAllCheckbox = document.getElementById("itemsSelectAllCheckbox");
+  const unlockedItems = items.filter(it => !it.locked);
+  bar.style.display = unlockedItems.length > 0 ? "flex" : "none";
+  countEl.textContent = selectedItemIdsForDelete.size > 0 ? `已选 ${selectedItemIdsForDelete.size} 项` : "";
+  selectAllCheckbox.checked = unlockedItems.length > 0 && unlockedItems.every(it => selectedItemIdsForDelete.has(it.id));
+}
+
+// ---------- 物品管理 ----------
+function renderManageList() {
+  const el = document.getElementById("currentItemsList");
+  el.innerHTML = "";
+  items.forEach(it => {
+    const div = document.createElement("div");
+    div.className = "row";
+    // 锁定/解锁要求经理及以上(班长做不了,见权限对照表)——这张卡片本身
+    // 已经是班长起才看得到(applyRoleUI 那边控制),这里再单独多挡一道。
+    if (it.locked) {
+      div.innerHTML = `
+        <div class="name">🔒 ${it.name} <small>${it.unit} · ${currencySymbol(it.currency)}${Number(it.price).toFixed(2)}</small></div>
+        ${isManagerUp() ? '<button class="btn-ghost" data-action="unlock">解锁</button>' : ""}
+      `;
+      const unlockBtn = div.querySelector('[data-action="unlock"]');
+      if (unlockBtn) unlockBtn.addEventListener("click", () => unlockItemHandler(it));
+    } else {
+      div.innerHTML = `
+        <input type="checkbox" class="item-select-checkbox" ${selectedItemIdsForDelete.has(it.id) ? "checked" : ""}>
+        <div class="name">${it.name} <small>${it.unit} · ${currencySymbol(it.currency)}${Number(it.price).toFixed(2)}</small></div>
+        ${isManagerUp() ? '<button class="btn-ghost" data-action="lock">锁定</button>' : ""}
+        <button class="btn-ghost" data-action="edit">编辑</button>
+        <button class="btn-ghost" data-action="delete">删除</button>
+      `;
+      div.querySelector(".item-select-checkbox").addEventListener("change", (e) => {
+        if (e.target.checked) selectedItemIdsForDelete.add(it.id);
+        else selectedItemIdsForDelete.delete(it.id);
+        updateBulkDeleteBar();
+      });
+      const lockBtn = div.querySelector('[data-action="lock"]');
+      if (lockBtn) lockBtn.addEventListener("click", () => lockItemHandler(it));
+      div.querySelector('[data-action="edit"]').addEventListener("click", () => toggleItemEdit(it, div));
+      div.querySelector('[data-action="delete"]').addEventListener("click", () => deleteItemHandler(it));
+    }
+    el.appendChild(div);
+  });
+  updateBulkDeleteBar();
+}
+
+async function deleteSelectedItemsHandler() {
+  if (selectedItemIdsForDelete.size === 0) { alert("先勾选要删除的物品。"); return; }
+  const names = items.filter(it => selectedItemIdsForDelete.has(it.id)).map(it => it.name);
+  const preview = names.slice(0, 15).join("、") + (names.length > 15 ? " 等" : "");
+  if (!confirm(`删除选中的 ${names.length} 个物品?历史记录里名字还会保留,但不能再录入它们的数据了。\n\n${preview}`)) return;
+  try {
+    const result = await apiPost("deleteItemsBulk", { categoryId: currentCategory.id, itemIds: Array.from(selectedItemIdsForDelete) });
+    selectedItemIdsForDelete.clear();
+    let msg = `已删除 ${result.deletedCount} 个`;
+    if (result.skippedLocked && result.skippedLocked.length) msg += `,跳过 ${result.skippedLocked.length} 个已锁定的`;
+    alert(msg);
+    await loadItemsAndStock();
+  } catch (err) {
+    alert("批量删除失败: " + err.message);
+  }
+}
+
+async function lockItemHandler(item) {
+  try {
+    await apiPost("lockItem", { categoryId: currentCategory.id, itemId: item.id });
+    await loadItemsAndStock();
+  } catch (err) {
+    alert("锁定失败: " + err.message);
+  }
+}
+
+async function unlockItemHandler(item) {
+  const password = prompt(`解锁「${item.name}」需要输入管理员密码:`);
+  if (!password) return;
+  try {
+    await apiPost("unlockItem", { categoryId: currentCategory.id, itemId: item.id, password });
+    await loadItemsAndStock();
+  } catch (err) {
+    alert("解锁失败: " + err.message);
+  }
+}
+
+async function deleteItemHandler(item) {
+  if (!confirm(`删除物品「${item.name}」?历史记录里这个物品的名字还会保留,但不能再录入它的数据了。`)) return;
+  try {
+    await apiPost("deleteItem", { categoryId: currentCategory.id, itemId: item.id });
+    await loadItemsAndStock();
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
+}
+
+function toggleItemEdit(item, rowDiv) {
+  if (rowDiv.dataset.editing === "1") {
+    renderManageList();
+    return;
+  }
+  rowDiv.dataset.editing = "1";
+  const currencyOptions = CURRENCIES.map(c => `<option value="${c.code}" ${c.code === item.currency ? "selected" : ""}>${c.name} ${c.code}</option>`).join("");
+  rowDiv.innerHTML = `
+    <div class="add-item-form" style="flex:1;">
+      <input class="name" value="${item.name}" data-f="name">
+      <input class="unit" value="${item.unit}" data-f="unit">
+      <input class="price" type="number" step="0.01" value="${item.price}" data-f="price">
+      <select class="price" data-f="currency">${currencyOptions}</select>
+    </div>
+  `;
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:8px;margin-top:8px;";
+  actions.innerHTML = `<button class="btn-secondary" style="flex:1;">保存</button><button class="btn-ghost" style="flex:1;">取消</button>`;
+  rowDiv.appendChild(actions);
+  actions.children[0].addEventListener("click", async () => {
+    const name = rowDiv.querySelector('[data-f="name"]').value.trim();
+    const unit = rowDiv.querySelector('[data-f="unit"]').value.trim() || "个";
+    const price = parseFloat(rowDiv.querySelector('[data-f="price"]').value) || 0;
+    const currency = rowDiv.querySelector('[data-f="currency"]').value;
+    if (!name) { alert("名称不能为空"); return; }
+    try {
+      await apiPost("updateItem", { categoryId: currentCategory.id, itemId: item.id, name, unit, price, currency });
+      await loadItemsAndStock();
+    } catch (err) {
+      alert("保存失败: " + err.message);
+    }
+  });
+  actions.children[1].addEventListener("click", () => renderManageList());
+}
+
+async function addItem() {
+  const name = document.getElementById("newItemName").value.trim();
+  const unit = document.getElementById("newItemUnit").value.trim() || "个";
+  const price = parseFloat(document.getElementById("newItemPrice").value) || 0;
+  const currency = document.getElementById("newItemCurrency").value;
+  const startingStockRaw = document.getElementById("newItemStartingStock").value;
+  const startingStock = startingStockRaw === "" ? undefined : parseFloat(startingStockRaw);
+  if (!name) return;
+  try {
+    await apiPost("addItem", { categoryId: currentCategory.id, name, unit, price, currency, startingStock });
+    document.getElementById("newItemName").value = "";
+    document.getElementById("newItemUnit").value = "";
+    document.getElementById("newItemPrice").value = "";
+    document.getElementById("newItemStartingStock").value = "";
+    await loadItemsAndStock();
+  } catch (err) {
+    alert("添加失败: " + err.message);
+  }
+}
+
+// ---------- 从 Excel 批量导入物品 ----------
+// 只解析名称/单位/单价,不读库存列——库存要求 Kevin 导入后自己在"目前总库存"
+// 里逐个设置,见 itemsSettingsCard 里的说明文案。用 SheetJS(xlsx.js,head 里
+// CDN 引入)在浏览器端直接解析,不用先转 CSV 也不用后端多跑一趟。
+async function handleImportItemsFile(file) {
+  const statusEl = document.getElementById("importItemsStatus");
+  statusEl.className = "status-line"; statusEl.textContent = "解析中…";
+  let rows;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "文件解析失败: " + err.message;
+    return;
+  }
+  const dataRows = rows.slice(1); // 第一行当标题跳过
+  const parsed = [];
+  const seen = new Set();
+  dataRows.forEach(r => {
+    const name = String(r[0] == null ? "" : r[0]).trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return; // excel 里自己重复的名字,前端先去一遍,后端也会再查一遍已有物品
+    seen.add(key);
+    const unit = r[1] != null ? String(r[1]).trim() : "";
+    const price = r[2] != null && r[2] !== "" ? Number(r[2]) : undefined;
+    parsed.push({ name, unit: unit || undefined, price });
+  });
+  if (!parsed.length) {
+    statusEl.className = "status-line error"; statusEl.textContent = "没有解析到任何物品名称,检查一下表格格式。";
+    return;
+  }
+  if (!confirm(`从表格里读到 ${parsed.length} 个物品,确认导入到「${currentCategory.name}」?`)) {
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    return;
+  }
+  try {
+    const result = await apiPost("addItemsBulk", { categoryId: currentCategory.id, items: parsed });
+    let msg = `导入完成:新增 ${result.added.length} 个`;
+    if (result.skipped.length) msg += `,跳过 ${result.skipped.length} 个已存在的(${result.skipped.join("、")})`;
+    statusEl.className = "status-line"; statusEl.textContent = msg;
+    await loadItemsAndStock();
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "导入失败: " + err.message;
+  }
+}
+
+// ---------- AI 智能导入(格式随意) ----------
+// 前端只负责把 Excel 原样解析成二维数组(不假设任何固定列位置),真正的
+// "哪一列是名称/单位/单价"识别工作交给后端调 Claude API 做——API key 只存在
+// Apps Script 的 Script Property 里,前端代码和浏览器都碰不到。导入前一样有
+// 预览确认这一步,AI 判断错了不会直接污染库存表。
+async function handleAiImportItemsFile(file) {
+  const statusEl = document.getElementById("aiImportItemsStatus");
+  statusEl.className = "status-line"; statusEl.textContent = "解析表格中…";
+  let rawRows;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "文件解析失败: " + err.message;
+    return;
+  }
+  if (!rawRows.length) {
+    statusEl.className = "status-line error"; statusEl.textContent = "表格是空的。";
+    return;
+  }
+  statusEl.textContent = "AI 识别中,可能要几秒…";
+  let items;
+  try {
+    const result = await apiPost("aiParseImportRows", { rawRows });
+    items = (result.items || []).map(it => ({ name: it.name, unit: it.unit || undefined, price: it.price }));
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "AI 识别失败: " + err.message;
+    return;
+  }
+  items = items.filter(it => it && it.name && String(it.name).trim());
+  if (!items.length) {
+    statusEl.className = "status-line error"; statusEl.textContent = "AI 没有识别到任何物品,换固定格式导入试试。";
+    return;
+  }
+  const preview = items.slice(0, 10).map(it => it.name).join("、") + (items.length > 10 ? " 等" : "");
+  if (!confirm(`AI 识别到 ${items.length} 个物品:${preview}\n\n确认导入到「${currentCategory.name}」?`)) {
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    return;
+  }
+  try {
+    const result = await apiPost("addItemsBulk", { categoryId: currentCategory.id, items });
+    let msg = `导入完成:新增 ${result.added.length} 个`;
+    if (result.skipped.length) msg += `,跳过 ${result.skipped.length} 个已存在的(${result.skipped.join("、")})`;
+    statusEl.className = "status-line"; statusEl.textContent = msg;
+    await loadItemsAndStock();
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "导入失败: " + err.message;
+  }
+}
+
+// ---------- 登录 / 首次设置管理员账号 ----------
+const REMEMBER_USERNAME_KEY = "inv_remember_username_v1";
+const AUTOLOGIN_KEY = "inv_autologin_v1"; // {username, password},明文存在浏览器本地——
+// 图的就是"下次不用再输",这是用户自己选的权衡,不是每个账号都必须开。
+
+async function initLoginView() {
+  const hasAdminFlag = (await apiGet("hasAdmin", {})).hasAdmin;
+  document.getElementById("registerAdminCard").style.display = hasAdminFlag ? "none" : "block";
+  document.getElementById("loginCard").style.display = hasAdminFlag ? "block" : "none";
+  const rememberedUsername = localStorage.getItem(REMEMBER_USERNAME_KEY);
+  if (rememberedUsername) {
+    document.getElementById("loginUsername").value = rememberedUsername;
+    document.getElementById("rememberUsernameCheck").checked = true;
+  }
+  document.getElementById("autoLoginCheck").checked = !!localStorage.getItem(AUTOLOGIN_KEY);
+}
+
+async function afterLogin(user) {
+  currentUser = user;
+  if (user.role === "admin") {
+    showView("stores");
+    await loadStores();
+    return;
+  }
+  if (!user.storeId || !user.storeName) {
+    const statusEl = document.getElementById("loginStatus");
+    statusEl.className = "status-line error";
+    statusEl.textContent = "这个账号没有绑定门店,请联系管理员。";
+    clearSession();
+    return;
+  }
+  currentStore = { id: user.storeId, name: user.storeName };
+  showView("categories");
+  await loadCategories();
+}
+
+document.getElementById("registerAdminBtn").addEventListener("click", async () => {
+  const displayName = document.getElementById("regDisplayName").value.trim();
+  const username = document.getElementById("regUsername").value.trim();
+  const password = document.getElementById("regPassword").value;
+  const password2 = document.getElementById("regPassword2").value;
+  const statusEl = document.getElementById("registerStatus");
+  if (!username || !password) { statusEl.className = "status-line error"; statusEl.textContent = "请输入用户名和密码"; return; }
+  if (password !== password2) { statusEl.className = "status-line error"; statusEl.textContent = "两次输入的密码不一致"; return; }
+  try {
+    const result = await apiPost("registerAdmin", { username, password, displayName });
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    saveSession(result.token, result.user);
+    await afterLogin(result.user);
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = err.message;
+  }
+});
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const username = document.getElementById("loginUsername").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  const statusEl = document.getElementById("loginStatus");
+  if (!username || !password) { statusEl.className = "status-line error"; statusEl.textContent = "请输入用户名和密码"; return; }
+  try {
+    const result = await apiPost("login", { username, password });
+    document.getElementById("loginPassword").value = "";
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    if (document.getElementById("rememberUsernameCheck").checked) {
+      localStorage.setItem(REMEMBER_USERNAME_KEY, username);
+    } else {
+      localStorage.removeItem(REMEMBER_USERNAME_KEY);
+    }
+    if (document.getElementById("autoLoginCheck").checked) {
+      localStorage.setItem(AUTOLOGIN_KEY, JSON.stringify({ username, password }));
+    } else {
+      localStorage.removeItem(AUTOLOGIN_KEY);
+    }
+    saveSession(result.token, result.user);
+    await afterLogin(result.user);
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = err.message;
+  }
+});
+
+// ---------- 账号管理(仅管理员) ----------
+function populateStoreSelect(select, storesList) {
+  select.innerHTML = storesList.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+}
+
+async function loadAccounts() {
+  const [usersResp, storesResp] = await Promise.all([
+    apiGet("listUsers", {}),
+    apiGet("listStores", {}),
+  ]);
+  const users = usersResp.users;
+  const storesList = storesResp.stores;
+  // 后端 listUsers 已经按权限过滤过(管理员看全部门店,员工/班长/经理只看
+  // 自己那家,且四级里谁都看不到管理员账号本身)——这里不用再筛一遍。
+  renderAccountsList(users, storesList);
+  populateStoreSelect(document.getElementById("newEmpStore"), storesList);
+  // "添加账号"整张卡片现在只有管理员能看到(2026-07-17 二次调整:一度放开给
+  // 班长及以上,Kevin 决定账号创建统一由他自己管,收回去了)。经理/班长/员工
+  // 现在能看同事列表、经理/班长能改角色,但都不能自己建新账号。
+  document.getElementById("addAccountCard").style.display = isAdmin() ? "block" : "none";
+  document.getElementById("newEmpRoleRow").style.display = isAdmin() ? "block" : "none";
+  document.getElementById("newEmpStoreRow").style.display = isAdmin() ? "block" : "none";
+}
+
+function renderAccountsList(users, storesList) {
+  const el = document.getElementById("employeeUsersList");
+  const emptyHint = document.getElementById("noEmployeesHint");
+  el.innerHTML = "";
+  emptyHint.style.display = users.length === 0 ? "block" : "none";
+  users.forEach(u => {
+    const store = storesList.find(s => s.id === u.storeId);
+    const row = document.createElement("div");
+    row.className = "row";
+    // 重置密码只有管理员能做;删除账号管理员能删任何人,经理只能删同店的
+    // "员工"级账号(后端 deleteUserById 会再核一遍,这里只是不露出点了也会
+    // 被拒绝的按钮)。
+    //
+    // 改角色(2026-07-17 从"仅管理员"放开给经理/班长):谁能改谁——只能改
+    // "比自己等级低"的账号(经理能改班长/员工,班长只能改员工,管理员能改
+    // 除自己以外的所有人),下拉框的可选项也只到"自己当前的等级"为止(经理
+    // 最高能把人提到经理、班长最高能提到班长,谁都不能通过这里把人提到管理员
+    // ——那个太敏感,不是下拉框级别的操作)。后端 changeUserRole 会按同一套
+    // 规则再核一遍,这里只是不露出点了也会被拒绝的控件。
+    const canReset = isAdmin();
+    const canDelete = isAdmin() || (isManagerUp() && u.role === "employee");
+    const canChangeRole = isShiftLeaderUp() && (ROLE_LEVELS[u.role] || 0) < myLevel();
+    const SETTABLE_ROLES = [
+      { value: "employee", label: "员工" },
+      { value: "shift_leader", label: "班长" },
+      { value: "manager", label: "经理" },
+    ].filter(r => ROLE_LEVELS[r.value] <= myLevel());
+    const roleSelectHtml = canChangeRole
+      ? `<select data-action="role-select">
+          ${SETTABLE_ROLES.map(r => `<option value="${r.value}" ${u.role === r.value ? "selected" : ""}>${r.label}</option>`).join("")}
+        </select>`
+      : "";
+    row.innerHTML = `
+      <div class="name">${u.displayName} <small>${ROLE_LABELS[u.role] || u.role} · ${u.username} · ${store ? store.name : "门店已删除"}</small></div>
+      ${roleSelectHtml}
+      ${canReset ? '<button class="btn-ghost" data-action="reset">重置密码</button>' : ""}
+      ${canDelete ? '<button class="btn-ghost" data-action="delete">删除</button>' : ""}
+    `;
+    const roleSelect = row.querySelector('[data-action="role-select"]');
+    if (roleSelect) roleSelect.addEventListener("change", async (e) => {
+      const newRole = e.target.value;
+      try {
+        await apiPost("changeUserRole", { userId: u.id, newRole });
+        loadAccounts();
+      } catch (err) {
+        alert("改角色失败: " + err.message);
+        e.target.value = u.role; // 失败了把下拉框选回原来的值,不留一个跟实际状态不符的假象
+      }
+    });
+    const resetBtn = row.querySelector('[data-action="reset"]');
+    if (resetBtn) resetBtn.addEventListener("click", async () => {
+      const newPassword = prompt(`给「${u.displayName}」设置新密码:`);
+      if (!newPassword) return;
+      try {
+        await apiPost("resetPassword", { userId: u.id, newPassword });
+        alert("密码已重置。");
+      } catch (err) {
+        alert("重置失败: " + err.message);
+      }
+    });
+    const deleteBtn = row.querySelector('[data-action="delete"]');
+    if (deleteBtn) deleteBtn.addEventListener("click", async () => {
+      if (!confirm(`删除账号「${u.displayName}」(${ROLE_LABELS[u.role] || u.role})?`)) return;
+      try {
+        await apiPost("deleteUser", { userId: u.id });
+        loadAccounts();
+      } catch (err) {
+        alert("删除失败: " + err.message);
+      }
+    });
+    el.appendChild(row);
+  });
+}
+
+document.getElementById("addEmployeeBtn").addEventListener("click", async () => {
+  const displayName = document.getElementById("newEmpDisplayName").value.trim();
+  const username = document.getElementById("newEmpUsername").value.trim();
+  const password = document.getElementById("newEmpPassword").value;
+  const storeId = document.getElementById("newEmpStore").value;
+  const role = isAdmin() ? document.getElementById("newEmpRole").value : "employee";
+  const statusEl = document.getElementById("addEmployeeStatus");
+  if (!username || !password) { statusEl.className = "status-line error"; statusEl.textContent = "请输入用户名和密码"; return; }
+  try {
+    await apiPost("createEmployee", { username, password, displayName, storeId, role });
+    document.getElementById("newEmpDisplayName").value = "";
+    document.getElementById("newEmpUsername").value = "";
+    document.getElementById("newEmpPassword").value = "";
+    statusEl.className = "status-line"; statusEl.textContent = "";
+    await loadAccounts();
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "创建失败: " + err.message;
+  }
+});
+
+// ---------- 事件绑定 ----------
+document.getElementById("calcBtn").addEventListener("click", computeToday);
+document.getElementById("saveBtn").addEventListener("click", saveToday);
+document.getElementById("saveDirectBtn").addEventListener("click", saveDirectly);
+document.getElementById("refreshHistoryBtn").addEventListener("click", loadHistory);
+document.getElementById("addItemBtn").addEventListener("click", addItem);
+document.getElementById("importItemsBtn").addEventListener("click", () => {
+  document.getElementById("importItemsFile").click();
+});
+document.getElementById("importItemsFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ""; // 允许连续两次选同一个文件也能触发 change
+  if (file) await handleImportItemsFile(file);
+});
+document.getElementById("aiImportItemsBtn").addEventListener("click", () => {
+  document.getElementById("aiImportItemsFile").click();
+});
+document.getElementById("aiImportItemsFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (file) await handleAiImportItemsFile(file);
+});
+document.getElementById("toggleItemsBtn").addEventListener("click", () => {
+  const el = document.getElementById("itemsManage");
+  el.style.display = el.style.display === "none" ? "block" : "none";
+});
+document.getElementById("itemsSelectAllCheckbox").addEventListener("change", (e) => {
+  const unlockedItems = items.filter(it => !it.locked);
+  if (e.target.checked) unlockedItems.forEach(it => selectedItemIdsForDelete.add(it.id));
+  else selectedItemIdsForDelete.clear();
+  renderManageList();
+});
+document.getElementById("deleteSelectedItemsBtn").addEventListener("click", deleteSelectedItemsHandler);
+setupItemSearch(
+  document.getElementById("stockSummarySearchInput"),
+  document.getElementById("stockSummarySearchDropdown"),
+  jumpToStockTile,
+);
+setupItemSearch(
+  document.getElementById("entryTableSearchInput"),
+  document.getElementById("entryTableSearchDropdown"),
+  jumpToEntryRow,
+);
+
+// ---------- 启动:注册 service worker,尝试恢复上次登录,否则进登录页 ----------
+(async function boot() {
+  populateCurrencySelect(document.getElementById("newItemCurrency"));
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+  const saved = loadSavedSession();
+  if (saved && saved.token && saved.user) {
+    authToken = saved.token;
+    try {
+      await afterLogin(saved.user);
+      return;
+    } catch (err) {
+      clearSession();
+    }
+  }
+  // 没有有效的登录态(第一次打开,或者 14 天的 session 过期了)——如果之前
+  // 勾过"自动登录",在这里用存的账号密码直接重新登一次,不用用户再动手。
+  // 密码不对了(比如管理员改过)就把这份自动登录清掉,退回正常登录页,
+  // 不要一直静默重试报错。
+  const autoLoginRaw = localStorage.getItem(AUTOLOGIN_KEY);
+  if (autoLoginRaw) {
+    try {
+      const { username, password } = JSON.parse(autoLoginRaw);
+      const result = await apiPost("login", { username, password });
+      saveSession(result.token, result.user);
+      await afterLogin(result.user);
+      return;
+    } catch (err) {
+      localStorage.removeItem(AUTOLOGIN_KEY);
+    }
+  }
+  showView("login");
+  await initLoginView();
+})();
+</script>
+
+</body>
+</html>
