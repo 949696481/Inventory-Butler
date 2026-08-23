@@ -180,6 +180,24 @@
   }
   .btn-ghost.active { background: rgba(212,168,83,0.18); border-radius: 8px; }
 
+  /* 下滑超过一屏才冒出来的"返回顶部"悬浮按钮(JS 按 scrollY 控制显示/隐藏)。
+     放在右下角,跟安全区留白一致,避免被全面屏手势条挡住。 */
+  #scrollTopBtn {
+    position: fixed;
+    right: calc(18px + env(safe-area-inset-right, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--gold-light), var(--gold-dark));
+    color: var(--on-accent);
+    font-size: 20px;
+    line-height: 44px;
+    text-align: center;
+    padding: 0;
+    box-shadow: 0 6px 18px rgba(102,65,160,0.4);
+    z-index: 30;
+  }
+
   .summary-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -761,6 +779,9 @@
 
 </main>
 
+<!-- 下滑超过一屏才出现的"返回顶部"悬浮按钮,不属于任何 view,常驻在页面上。 -->
+<button id="scrollTopBtn" aria-label="返回顶部" style="display:none;">↑</button>
+
 <script>
 // ---------- 状态(所有数据通过 Google Apps Script 后端读写,见 config.js 里的 API_BASE_URL) ----------
 let stores = [];
@@ -910,6 +931,14 @@ function restoreScrollFor(name) {
   requestAnimationFrame(tryScroll);
   [150, 400, 900].forEach(delay => setTimeout(() => window.scrollTo(0, target), delay));
 }
+
+// 下滑超过一屏("初始页面"的高度,也就是 window.innerHeight)才冒出"返回顶部"
+// 按钮,不到这个量就不显示,避免页面本来就很短的时候也常驻一个没用的按钮。
+const scrollTopBtn = document.getElementById("scrollTopBtn");
+window.addEventListener("scroll", () => {
+  scrollTopBtn.style.display = window.scrollY > window.innerHeight ? "block" : "none";
+}, { passive: true });
+scrollTopBtn.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
 
 function applyRoleUI() {
   const canManage = isShiftLeaderUp();
