@@ -181,15 +181,17 @@
   .btn-ghost.active { background: rgba(212,168,83,0.18); border-radius: 8px; }
 
   /* 下滑超过一屏才冒出来的"返回顶部"悬浮按钮(JS 按 scrollY 控制显示/隐藏)。
-     贴右边、垂直居中(比死贴右下角更靠页面中间,也更好够到)。平时半透明
-     "虚化"存在,鼠标移进它的范围才完全显化——鼠标能悬停的设备(电脑)才有
-     这个若隐若现的效果,触屏设备没有真正的 hover,直接给个折中的常驻透明度,
-     不然手机上会一直是若隐若现摸不到实体。 */
+     放在屏幕最下方正中间——不用每次把鼠标/手指挪到最右边,单手操作也顺手。
+     故意不贴死最底边(留出 70px 左右的间距),减少跟卡片里那些贴底的通栏
+     按钮(比如"计算今日消耗"/"保存记录"/"添加物品")重叠导致误触的概率。
+     平时半透明"虚化",鼠标移上去才完全显化——只有支持真正 hover 的设备
+     (电脑)才有这个若隐若现效果;触屏设备没有 hover,给个折中的常驻
+     透明度,不然手机上永远摸不到实体、也看不清是不是按钮。 */
   #scrollTopBtn {
     position: fixed;
-    right: calc(14px + env(safe-area-inset-right, 0px));
-    top: 50%;
-    transform: translateY(-50%);
+    left: 50%;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
     width: 44px; height: 44px;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--gold-light), var(--gold-dark));
