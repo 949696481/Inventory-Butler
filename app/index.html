@@ -114,11 +114,23 @@
   .card.card-collapsible > h2 { cursor: pointer; user-select: none; }
   .card.card-collapsed > *:not(h2) { display: none !important; }
 
-  /* 网页版(宽屏)横向布局——分类详情页的卡片自动排成两栏,不用改 HTML 结构。 */
+  /* 窄屏(手机):.detail-col 不参与布局,里面的卡片直接拼回 #view-detail
+     原来从上到下一条线的顺序,视觉上跟没分组之前完全一样。 */
+  .detail-col { display: contents; }
+
+  /* 宽屏(网页版)横向布局——分类详情页的卡片分成左右两栏,每栏内部卡片
+     独立上下排列,互不影响高度(不是 CSS columns 那种"自动分配、内容一变
+     高度就整体重新分布"的排法,不会出现改右边卡片导致左边卡片跳到右边、
+     或者两栏卡片顺序跟着乱跳的问题——每张卡片固定在自己那一栏里)。 */
   @media (min-width: 900px) {
     main { max-width: 1100px; }
-    #view-detail { columns: 2; column-gap: 16px; }
-    #view-detail > .card { break-inside: avoid; }
+    /* showView() 用行内 style="display:block" 控制显示/隐藏(所有 .view
+       共用的逻辑),行内样式优先级比这里的媒体查询规则高。用属性选择器
+       只匹配"当前正显示的那个 display:block"状态再配 !important 覆盖掉它
+       ——不能不带这个属性条件直接对 #view-detail 加 !important,那样会在
+       它该被隐藏(display:none)的时候也被强制掰成 flex,变成一直显示。 */
+    #view-detail[style*="display: block"] { display: flex !important; align-items: flex-start; gap: 16px; }
+    #view-detail > .detail-col { display: block; flex: 1; min-width: 0; }
   }
 
   .row {
@@ -508,7 +520,12 @@
 
   <!-- 分类详情:每日录入 + 历史 + 物品/字段管理 -->
   <div class="view" id="view-detail" style="display:none;">
-
+    <!-- 宽屏下这两个 .detail-col 各自变成独立的一列(见 CSS),里面的卡片
+         互不影响高度——右边"物品设置"展开变长不会把左边的卡片挤到右边去,
+         也不会导致哪张卡在两栏之间跳来跳去。窄屏(手机)下 .detail-col
+         是 display:contents,两组卡片会拼回原来那种从上到下一条线的顺序,
+         跟改之前完全一样,不影响手机版。 -->
+    <div class="detail-col">
     <div class="card" id="currencyCard" style="display:none;padding:16px 20px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <span class="hint">结算货币(消耗金额按这个换算显示)</span>
@@ -526,7 +543,7 @@
       <div id="stockSummary"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="todayEntryCard">
       <h2><span>今天的记录 <span class="hint" id="dateLabel"></span></span> <button class="btn-ghost" id="manageFieldsBtn">管理字段</button></h2>
       <div id="fieldsManage" style="display:none;margin-bottom:14px;">
         <div id="currentFieldsList"></div>
@@ -581,8 +598,10 @@
       <button class="btn-primary" id="saveBtn">保存记录</button>
       <div class="status-line" id="saveStatus"></div>
     </div>
+    </div>
 
-    <div class="card">
+    <div class="detail-col">
+    <div class="card" id="allHistoryCard">
       <h2><span>全部记录</span> <span><button class="btn-ghost" id="refreshHistoryBtn">刷新</button> <button class="btn-ghost" id="toggleHistoryBtn">展开</button></span></h2>
       <div id="historyCalendarBody" style="display:none;">
         <div class="calendar-nav">
@@ -595,7 +614,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="summaryCard">
       <h2><span>消耗汇总</span> <button class="btn-ghost" id="toggleSummaryCalBtn">展开日历</button></h2>
       <div class="quick-range-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
         <button class="btn-ghost" id="summaryQuickTodayBtn">今日</button>
@@ -670,6 +689,7 @@
           <button class="btn-secondary" id="addNoteFieldBtn" style="margin-top:8px;">添加自定义条目</button>
         </div>
       </div>
+    </div>
     </div>
 
   </div>
@@ -872,6 +892,25 @@ const todayStr = () => {
 // ---------- 视图切换(同一个页面内切换,不开新窗口/弹窗) ----------
 let currentDayLabel = "";
 
+// 切页面时把当前滚动位置记下来,回到这个页面时再滚回去——不然默认行为是
+// 切到一个更矮的页面后,浏览器会把 scrollY 直接夹到新页面的最大高度(通常
+// 就是 0,看起来像"自动跳回最上面"),点返回也不会恢复,手机上尤其明显。
+// 页面内容常常是进入后才异步加载/渲染出来的(listItems/getLog 等请求没
+// 完成前页面很矮),所以恢复要多试几次,等内容撑起高度后才滚得到位。
+let currentViewName = null;
+const savedScrollY = {};
+function restoreScrollFor(name) {
+  const target = savedScrollY[name] || 0;
+  let attempts = 0;
+  const tryScroll = () => {
+    window.scrollTo(0, target);
+    attempts++;
+    if (attempts < 8) requestAnimationFrame(tryScroll);
+  };
+  requestAnimationFrame(tryScroll);
+  [150, 400, 900].forEach(delay => setTimeout(() => window.scrollTo(0, target), delay));
+}
+
 function applyRoleUI() {
   const canManage = isShiftLeaderUp();
   const manageFieldsBtn = document.getElementById("manageFieldsBtn");
@@ -883,10 +922,13 @@ function applyRoleUI() {
 }
 
 function showView(name) {
+  if (currentViewName && currentViewName !== name) savedScrollY[currentViewName] = window.scrollY;
   document.querySelectorAll(".view").forEach(v => v.style.display = "none");
   document.getElementById("view-" + name).style.display = "block";
   document.getElementById("editEntryCard").style.display = "none";
   editingEntry = null;
+  currentViewName = name;
+  restoreScrollFor(name);
   const backBtn = document.getElementById("backBtn");
   const manageBtn = document.getElementById("manageBtn");
   const accountsBtn = document.getElementById("accountsBtn");
@@ -3127,13 +3169,7 @@ function makeCollapsible(cardEl, { defaultOpen = true } = {}) {
 // 又在外层加了一圈整卡折叠,变成两层收放叠在一起:外层收起时按钮跟着被藏起来,
 // 外层展开后内层那个按钮控制的内容还是照原样藏着,点了跟没点一样。这三张卡
 // 不需要外层折叠,只留它们本来就有的那一个就够了。
-["stockSummaryCard", "resultCard"].forEach((id) => makeCollapsible(document.getElementById(id), { defaultOpen: true }));
-// "今天的记录"在 HTML 里没有固定 id,按 #view-detail 里的第 3 张卡片取
-// (第 1 张是 currencyCard,没有 h2,makeCollapsible 会自己跳过)。
-(function initRemainingCollapsibleCards() {
-  const cards = document.querySelectorAll("#view-detail > .card");
-  makeCollapsible(cards[2], { defaultOpen: true });  // 今天的记录
-})();
+["stockSummaryCard", "resultCard", "todayEntryCard"].forEach((id) => makeCollapsible(document.getElementById(id), { defaultOpen: true }));
 
 // ---------- 启动:注册 service worker,尝试恢复上次登录,否则进登录页 ----------
 (async function boot() {
