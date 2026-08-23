@@ -614,6 +614,7 @@
       </div>
       <div style="font-weight:700;text-align:center;margin:6px 0;" id="summaryRangeLabel"></div>
       <div id="summaryList"></div>
+      <button class="btn-ghost" id="viewIncomingBtn" style="width:100%;margin-top:8px;">进货记录</button>
     </div>
 
     <div class="card" id="itemsSettingsCard">
@@ -714,6 +715,16 @@
     <div class="card">
       <h2><span id="dayDetailTitle"></span> <button class="btn-ghost" id="deleteDayBtn" style="display:none;">删除这天</button></h2>
       <div id="dayDetailList"></div>
+    </div>
+  </div>
+
+  <!-- "消耗汇总"里选定区间的进货记录:按物品汇总数量(不算钱),底部对比这段
+       时间的进货总金额和消耗总金额。 -->
+  <div class="view" id="view-incoming-summary" style="display:none;">
+    <div class="card">
+      <h2><span id="incomingSummaryTitle"></span></h2>
+      <div id="incomingSummaryList"></div>
+      <div id="incomingSummaryCompare" style="margin-top:16px;"></div>
     </div>
   </div>
 
@@ -915,6 +926,11 @@ function showView(name) {
     manageBtn.style.display = "none";
     title.textContent = currentCategory.name;
     subtitle.textContent = currentDayLabel;
+  } else if (name === "incoming-summary") {
+    backBtn.style.display = "inline-block";
+    manageBtn.style.display = "none";
+    title.textContent = currentCategory.name;
+    subtitle.textContent = "进货记录";
   } else if (name === "accounts") {
     backBtn.style.display = "inline-block";
     manageBtn.style.display = "none";
@@ -925,7 +941,9 @@ function showView(name) {
 }
 
 document.getElementById("backBtn").addEventListener("click", () => {
-  if (document.getElementById("view-day-detail").style.display !== "none") {
+  if (document.getElementById("view-incoming-summary").style.display !== "none") {
+    showView("detail");
+  } else if (document.getElementById("view-day-detail").style.display !== "none") {
     showView("detail");
     loadItemsAndStock();
     loadHistory();
@@ -2010,6 +2028,78 @@ function renderSummary() {
   totalRow.style.cssText = "font-weight:700;border-top:2px solid var(--paper-dim);padding-top:10px;margin-top:4px;";
   totalRow.innerHTML = `<span>合计</span><span>${currencySymbol(settlementCurrency)}${grandTotal.toFixed(2)}</span>`;
   listEl.appendChild(totalRow);
+}
+
+document.getElementById("viewIncomingBtn").addEventListener("click", () => {
+  if (!summaryRangeStart) return;
+  renderIncomingSummary(summaryRangeStart, summaryRangeEnd || summaryRangeStart);
+  showView("incoming-summary");
+});
+
+// "进货记录"页:跟 renderSummary 用同一个 historyRowsByDate 数据源和同一段
+// 区间,只是换个角度——按物品汇总进货数量(不算钱,进货本身不是"花费"),
+// 底部单独放一个"进货总金额 vs 消耗总金额"的对比,方便看这段时间到底是进得多
+// 还是耗得多。
+function renderIncomingSummary(startStr, endStr) {
+  const fmt = (s) => { const [, m, d] = s.split("-").map(Number); return `${m}/${d}`; };
+  document.getElementById("incomingSummaryTitle").textContent =
+    (startStr === endStr ? fmt(startStr) : `${fmt(startStr)} - ${fmt(endStr)}`) + " 进货记录";
+
+  const listEl = document.getElementById("incomingSummaryList");
+  const compareEl = document.getElementById("incomingSummaryCompare");
+  listEl.innerHTML = "";
+
+  const qtyByItem = {};
+  const order = [];
+  let incomingTotal = 0;
+  let consumedTotal = 0;
+
+  Object.keys(historyRowsByDate).forEach(dateStr => {
+    if (dateStr < startStr || dateStr > endStr) return;
+    historyRowsByDate[dateStr].forEach(r => {
+      const it = items.find(x => x.id === r.itemId);
+      if (incomingFieldId) {
+        const v = (r.values || {})[incomingFieldId];
+        if (v !== undefined && v !== null && v !== "" && !isNaN(Number(v)) && Number(v) !== 0) {
+          if (!qtyByItem[r.itemId]) {
+            qtyByItem[r.itemId] = { name: r.itemName, qty: 0, unit: it ? it.unit : "" };
+            order.push(r.itemId);
+          }
+          const qty = Number(v);
+          qtyByItem[r.itemId].qty += qty;
+          if (it && it.price) {
+            const converted = convertAmount(qty * Number(it.price), it.currency);
+            if (converted && converted.ok) incomingTotal += converted.value;
+          }
+        }
+      }
+      if (r.usage !== null && r.usage !== undefined) {
+        const converted = convertAmount(r.cost, it ? it.currency : null);
+        if (converted && converted.ok) consumedTotal += converted.value;
+      }
+    });
+  });
+
+  if (order.length === 0) {
+    listEl.innerHTML = `<div class="empty">这段时间没有进货记录</div>`;
+  } else {
+    order.forEach(itemId => {
+      const t = qtyByItem[itemId];
+      const row = document.createElement("div");
+      row.className = "item-line";
+      row.innerHTML = `<span>${t.name}</span><span class="tag">+${t.qty}${t.unit}</span>`;
+      listEl.appendChild(row);
+    });
+  }
+
+  compareEl.innerHTML = `
+    <div class="item-line" style="font-weight:700;border-top:2px solid var(--paper-dim);padding-top:10px;">
+      <span>进货总金额</span><span>${currencySymbol(settlementCurrency)}${incomingTotal.toFixed(2)}</span>
+    </div>
+    <div class="item-line" style="font-weight:700;">
+      <span>消耗总金额</span><span>${currencySymbol(settlementCurrency)}${consumedTotal.toFixed(2)}</span>
+    </div>
+  `;
 }
 
 async function loadHistory() {
