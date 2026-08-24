@@ -47,7 +47,26 @@
     padding: calc(28px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px)) 20px calc(20px + env(safe-area-inset-left, 0px));
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    row-gap: 10px;
+    column-gap: 14px;
+  }
+  /* header-main(返回+图标+标题)和 header-actions(账号/管理/退出)分组,
+     这样窄屏下可以整组一起换行,而不是标题被硬挤压、文字视觉溢出到按钮上面
+     (旧版本这里没分组,手机上店名长一点比如"MollyTea Palo Alto"就会跟"账号"/
+     "退出"按钮重叠)。 */
+  header .header-main {
+    display: flex;
+    align-items: center;
     gap: 14px;
+    flex: 1;
+    min-width: 0;
+  }
+  header .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
   header #backBtn {
     color: var(--on-accent);
@@ -63,6 +82,7 @@
     padding: 8px 14px;
     font-size: 13px;
     flex-shrink: 0;
+    white-space: nowrap;
   }
   header .mark {
     width: 44px; height: 44px; border-radius: 12px;
@@ -76,11 +96,23 @@
     font-size: 20px;
     margin: 0;
     letter-spacing: 0.3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   header p {
     color: rgba(255,255,255,0.75);
     margin: 2px 0 0;
     font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 窄屏(手机):标题整行独占,按钮组换到第二行靠右——避免店名长的时候
+     跟"账号/管理/退出"按钮挤在同一行导致重叠或被截断看不清。 */
+  @media (max-width: 480px) {
+    header .header-main { flex-basis: 100%; }
+    header .header-actions { margin-left: auto; }
   }
   main {
     max-width: 560px;
@@ -471,15 +503,19 @@
 <body>
 
 <header>
-  <button id="backBtn" style="display:none;">←</button>
-  <div class="mark"><img src="icon-192.png" alt="库存管家"></div>
-  <div class="header-titles">
-    <h1 id="headerTitle">库存管家</h1>
-    <p id="headerSubtitle">选择门店</p>
+  <div class="header-main">
+    <button id="backBtn" style="display:none;">←</button>
+    <div class="mark"><img src="icon-192.png" alt="库存管家"></div>
+    <div class="header-titles">
+      <h1 id="headerTitle">库存管家</h1>
+      <p id="headerSubtitle">选择门店</p>
+    </div>
   </div>
-  <button id="accountsBtn" style="display:none;">账号</button>
-  <button id="manageBtn" style="display:none;">管理</button>
-  <button id="logoutBtn" style="display:none;">退出</button>
+  <div class="header-actions">
+    <button id="accountsBtn" style="display:none;">账号</button>
+    <button id="manageBtn" style="display:none;">管理</button>
+    <button id="logoutBtn" style="display:none;">退出</button>
+  </div>
 </header>
 
 <main>
