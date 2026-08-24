@@ -3179,6 +3179,12 @@ document.getElementById("loginBtn").addEventListener("click", async () => {
     await afterLogin(result.user);
   } catch (err) {
     statusEl.className = "status-line error"; statusEl.textContent = err.message;
+    // 登录失败(用户名或密码不对)——密码框清空+重新聚焦,逼着重新输入一遍,
+    // 不让用户误以为"是不是我打错了但没看清",也避免残留一个已经确认错误的
+    // 密码留在输入框里。用户名保留,不用重打。
+    const pwdEl = document.getElementById("loginPassword");
+    pwdEl.value = "";
+    pwdEl.focus();
   }
 });
 
