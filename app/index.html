@@ -860,7 +860,16 @@ let authToken = null;          // 登录后端发的 session token,每次请求�
 // 是后端,前端隐藏只是不让人误点。
 const ROLE_LEVELS = { admin: 4, manager: 3, shift_leader: 2, employee: 1 };
 const ROLE_LABELS = { admin: "管理员", manager: "经理", shift_leader: "班长", employee: "员工" };
-function myLevel() { return currentUser ? (ROLE_LEVELS[currentUser.role] || 0) : 0; }
+// 一个账号现在可以在不同门店有不同角色(login 返回的 user.stores 数组里
+// 每个门店各带一个 role)——非 admin 的"我的等级"要看"我在当前这个门店"的
+// 角色,不能再是一个全局值。admin 没有 stores 数组,维持全局 admin 等级。
+function myRoleAtCurrentStore() {
+  if (!currentUser || currentUser.role === "admin") return currentUser ? currentUser.role : null;
+  if (!currentStore) return null;
+  const s = (currentUser.stores || []).find(s => s.id === currentStore.id);
+  return s ? s.role : null;
+}
+function myLevel() { return ROLE_LEVELS[myRoleAtCurrentStore()] || 0; }
 const isAdmin = () => myLevel() >= ROLE_LEVELS.admin;
 const isManagerUp = () => myLevel() >= ROLE_LEVELS.manager;
 const isShiftLeaderUp = () => myLevel() >= ROLE_LEVELS.shift_leader;
@@ -901,6 +910,18 @@ function handleAuthError(message) {
   }
 }
 
+// 后端偶尔会把底层报错(Google Sheets API 配额超限、Cloud Run 冷启动网络
+// 抖动等)原样透传成 error 文本,直接甩给用户很难看也没用——这里统一收口,
+// 认出这几类已知情况换成人话,认不出的原样显示(不吞掉真正的业务报错,比如
+// "用户名或密码不对"这种就应该照原样显示)。
+function friendlyErrorMessage(raw) {
+  const msg = String(raw || "");
+  if (/quota|rate limit|429|resource_exhausted|too many requests/i.test(msg)) {
+    return "服务器请求太频繁了,请稍等几秒再试一次。";
+  }
+  return raw;
+}
+
 async function apiGet(action, params) {
   const url = new URL(API_BASE_URL);
   url.searchParams.set("action", action);
@@ -908,21 +929,31 @@ async function apiGet(action, params) {
   Object.keys(params || {}).forEach(k => {
     if (params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
   });
-  const resp = await fetch(url.toString());
-  const data = await resp.json();
-  if (data.error) { handleAuthError(data.error); throw new Error(data.error); }
+  let data;
+  try {
+    const resp = await fetch(url.toString());
+    data = await resp.json();
+  } catch (e) {
+    throw new Error("网络不太稳定,请检查网络后重试。");
+  }
+  if (data.error) { handleAuthError(data.error); throw new Error(friendlyErrorMessage(data.error)); }
   return data;
 }
 
 async function apiPost(action, payload) {
   const body = Object.assign({ action, token: authToken }, payload || {});
-  const resp = await fetch(API_BASE_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(body),
-  });
-  const data = await resp.json();
-  if (data.error) { handleAuthError(data.error); throw new Error(data.error); }
+  let data;
+  try {
+    const resp = await fetch(API_BASE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(body),
+    });
+    data = await resp.json();
+  } catch (e) {
+    throw new Error("网络不太稳定,请检查网络后重试。");
+  }
+  if (data.error) { handleAuthError(data.error); throw new Error(friendlyErrorMessage(data.error)); }
   return data;
 }
 
@@ -1017,9 +1048,12 @@ function showView(name) {
   manageBtn.style.display = "none";
   // "账号管理"入口:四级都能进去看同事(2026-07-17 Kevin 要求员工也能互相
   // 看到),只是页面里"添加账号"那张卡片会按权限再单独隐藏(见 loadAccounts)。
-  // 管理员是从"stores"(选门店)页面进;经理/班长/员工没有"选门店"这一步,
-  // 登录直接落在"categories"(选分类)页面,所以那个页面也要露出这个按钮。
-  accountsBtn.style.display = ((name === "stores" || name === "categories") && !!currentUser) ? "inline-block" : "none";
+  // 账号管理页对非管理员是按"当前门店"过滤的(见 loadAccounts),所以非管理员
+  // 只能从"categories"(已经选定了门店)进;管理员看的是跨门店全局列表,
+  // "stores"(选门店)页面也能进——一个账号现在可能有多个门店,"stores"页面
+  // 不再是管理员专属,但非管理员还没选门店时没有"当前门店"可过滤,所以那个
+  // 入口只留给管理员。
+  accountsBtn.style.display = ((name === "categories" || (name === "stores" && isAdmin())) && !!currentUser) ? "inline-block" : "none";
   logoutBtn.style.display = (name !== "login" && currentUser) ? "inline-block" : "none";
   if (name === "login") {
     backBtn.style.display = "none";
@@ -1031,7 +1065,9 @@ function showView(name) {
     title.textContent = "库存管家";
     subtitle.textContent = currentUser ? `${currentUser.displayName} · 选择门店` : "选择门店";
   } else if (name === "categories") {
-    backBtn.style.display = isAdmin() ? "inline-block" : "none";
+    // 非管理员现在也可能有多个门店(见 afterLogin/myRoleAtCurrentStore),
+    // 这种情况下也要能"返回"去重新选门店,不能只让管理员看到返回按钮。
+    backBtn.style.display = (isAdmin() || (currentUser && (currentUser.stores || []).length > 1)) ? "inline-block" : "none";
     manageBtn.style.display = isShiftLeaderUp() ? "inline-block" : "none";
     title.textContent = currentStore.name;
     subtitle.textContent = "选择分类";
@@ -1764,7 +1800,15 @@ async function saveLogEntriesWithConfirm(payload) {
 
 async function saveToday() {
   const statusEl = document.getElementById("saveStatus");
+  const btn = document.getElementById("saveBtn");
   if (!lastComputed) return;
+  // 手速快点了好几下"保存记录"以前会一次性打出好几个并发请求,叠加到后端
+  // 容易撞到 Google Sheets API 的配额限制、报出难看的技术性错误——按钮在
+  // 请求进行中直接禁用+变成"保存中…",从源头掐掉重复提交,不用等后端兜底。
+  if (btn.disabled) return;
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "保存中…";
   statusEl.className = "status-line";
   statusEl.textContent = "保存中…";
   try {
@@ -1783,11 +1827,16 @@ async function saveToday() {
   } catch (err) {
     statusEl.className = "status-line error";
     statusEl.textContent = "保存失败: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
   }
 }
 
 async function saveDirectly() {
   const statusEl = document.getElementById("directSaveStatus");
+  const btn = document.getElementById("saveDirectBtn");
+  if (btn.disabled) return; // 见 saveToday() 里的说明:防止连点堆出并发重复请求
   const entries = items
     .filter(it => todayInputs[it.id])
     .map(it => ({ itemId: it.id, itemName: it.name, values: todayInputs[it.id], price: it.price }));
@@ -1799,6 +1848,9 @@ async function saveDirectly() {
     statusEl.className = "status-line error"; statusEl.textContent = "还没有填写任何内容";
     return;
   }
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "保存中…";
   statusEl.className = "status-line"; statusEl.textContent = "保存中…";
   try {
     if (entries.length > 0) {
@@ -1812,6 +1864,9 @@ async function saveDirectly() {
     await Promise.all([loadItemsAndStock(), loadHistory(), loadNoteLog()]); // 互不依赖,并发拉,不用排队等
   } catch (err) {
     statusEl.className = "status-line error"; statusEl.textContent = "保存失败: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
   }
 }
 
@@ -2878,6 +2933,63 @@ async function addItem() {
   }
 }
 
+// ---------- 导入预览确认(货币可逐行调整) ----------
+// 以前两个导入入口(固定格式/AI 智能)都是纯文字 confirm() 一下就直接导入,
+// 货币信息完全没地方填,统一按 CNY 处理——同一份表格里可能同时有美元和
+// 人民币的物品时会导入错(比如 $12.5 变成 ¥12.5),这里换成一个真正的预览
+// 列表,每行都能挨个看/改货币,确认无误再提交。AI 识别到的货币会预填,没
+// 识别到的默认用当前分类的结算货币。
+function openImportPreviewModal(items, categoryName) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(36,28,53,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;";
+    const card = document.createElement("div");
+    card.style.cssText = "background:var(--paper);border-radius:var(--radius);max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;";
+    const currencyOptionsHtml = CURRENCIES.map(c => `<option value="${c.code}">${c.name} ${c.code}</option>`).join("");
+    const defaultCurrency = settlementCurrency || "CNY";
+    card.innerHTML = `
+      <div style="padding:16px 20px;border-bottom:1px solid var(--paper-dim);">
+        <div style="font-weight:700;">确认导入到「${categoryName}」(${items.length} 个物品)</div>
+        <div class="hint" style="margin-top:4px;">检查每行的货币,没识别出来的默认用「${defaultCurrency}」,可以改。</div>
+      </div>
+      <div id="importPreviewRows" style="overflow-y:auto;padding:8px 20px;flex:1;"></div>
+      <div style="padding:14px 20px;border-top:1px solid var(--paper-dim);display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn-secondary" id="importPreviewCancel">取消</button>
+        <button class="btn-primary" id="importPreviewConfirm">确认导入</button>
+      </div>
+    `;
+    const rowsEl = card.querySelector("#importPreviewRows");
+    items.forEach((it, idx) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.style.cssText = "padding:8px 0;border-bottom:1px solid var(--paper-dim);";
+      row.innerHTML = `
+        <div class="name" style="flex:1;min-width:0;">
+          ${it.name}
+          <small>${it.unit || "个"}${it.price !== undefined && it.price !== null && it.price !== "" ? " · " + it.price : ""}</small>
+        </div>
+        <select data-idx="${idx}" style="flex-shrink:0;"></select>
+      `;
+      const sel = row.querySelector("select");
+      sel.innerHTML = currencyOptionsHtml;
+      sel.value = it.currency && CURRENCIES.some(c => c.code === it.currency) ? it.currency : defaultCurrency;
+      rowsEl.appendChild(row);
+    });
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    function close(result) {
+      document.body.removeChild(overlay);
+      resolve(result);
+    }
+    card.querySelector("#importPreviewCancel").addEventListener("click", () => close(null));
+    card.querySelector("#importPreviewConfirm").addEventListener("click", () => {
+      const selects = rowsEl.querySelectorAll("select");
+      const withCurrency = items.map((it, idx) => ({ ...it, currency: selects[idx].value }));
+      close(withCurrency);
+    });
+  });
+}
+
 // ---------- 从 Excel 批量导入物品 ----------
 // 只解析名称/单位/单价,不读库存列——库存要求 Kevin 导入后自己在"目前总库存"
 // 里逐个设置,见 itemsSettingsCard 里的说明文案。用 SheetJS(xlsx.js,head 里
@@ -2912,12 +3024,13 @@ async function handleImportItemsFile(file) {
     statusEl.className = "status-line error"; statusEl.textContent = "没有解析到任何物品名称,检查一下表格格式。";
     return;
   }
-  if (!confirm(`从表格里读到 ${parsed.length} 个物品,确认导入到「${currentCategory.name}」?`)) {
+  const confirmed = await openImportPreviewModal(parsed, currentCategory.name);
+  if (!confirmed) {
     statusEl.className = "status-line"; statusEl.textContent = "";
     return;
   }
   try {
-    const result = await apiPost("addItemsBulk", { categoryId: currentCategory.id, items: parsed });
+    const result = await apiPost("addItemsBulk", { categoryId: currentCategory.id, items: confirmed });
     let msg = `导入完成:新增 ${result.added.length} 个`;
     if (result.skipped.length) msg += `,跳过 ${result.skipped.length} 个已存在的(${result.skipped.join("、")})`;
     statusEl.className = "status-line"; statusEl.textContent = msg;
@@ -2953,7 +3066,7 @@ async function handleAiImportItemsFile(file) {
   let items;
   try {
     const result = await apiPost("aiParseImportRows", { rawRows });
-    items = (result.items || []).map(it => ({ name: it.name, unit: it.unit || undefined, price: it.price }));
+    items = (result.items || []).map(it => ({ name: it.name, unit: it.unit || undefined, price: it.price, currency: it.currency || undefined }));
   } catch (err) {
     statusEl.className = "status-line error"; statusEl.textContent = "AI 识别失败: " + err.message;
     return;
@@ -2963,13 +3076,13 @@ async function handleAiImportItemsFile(file) {
     statusEl.className = "status-line error"; statusEl.textContent = "AI 没有识别到任何物品,换固定格式导入试试。";
     return;
   }
-  const preview = items.slice(0, 10).map(it => it.name).join("、") + (items.length > 10 ? " 等" : "");
-  if (!confirm(`AI 识别到 ${items.length} 个物品:${preview}\n\n确认导入到「${currentCategory.name}」?`)) {
+  const confirmed = await openImportPreviewModal(items, currentCategory.name);
+  if (!confirmed) {
     statusEl.className = "status-line"; statusEl.textContent = "";
     return;
   }
   try {
-    const result = await apiPost("addItemsBulk", { categoryId: currentCategory.id, items });
+    const result = await apiPost("addItemsBulk", { categoryId: currentCategory.id, items: confirmed });
     let msg = `导入完成:新增 ${result.added.length} 个`;
     if (result.skipped.length) msg += `,跳过 ${result.skipped.length} 个已存在的(${result.skipped.join("、")})`;
     statusEl.className = "status-line"; statusEl.textContent = msg;
@@ -3003,16 +3116,26 @@ async function afterLogin(user) {
     await loadStores();
     return;
   }
-  if (!user.storeId || !user.storeName) {
+  // 一个账号现在可以在好几个门店(每个门店角色可以不一样,见 myLevel())——
+  // 0 个门店是异常态,1 个维持老版本"登录即进店"的体验,≥2 个才需要真正的
+  // "选门店"这一步(showView("stores") 现在不再是 admin 专属,见 showView/
+  // backBtn 里的改动)。
+  const userStores = user.stores || [];
+  if (userStores.length === 0) {
     const statusEl = document.getElementById("loginStatus");
     statusEl.className = "status-line error";
-    statusEl.textContent = "这个账号没有绑定门店,请联系管理员。";
+    statusEl.textContent = "这个账号还没有分配任何门店,请联系管理员。";
     clearSession();
     return;
   }
-  currentStore = { id: user.storeId, name: user.storeName };
-  showView("categories");
-  await loadCategories();
+  if (userStores.length === 1) {
+    currentStore = { id: userStores[0].id, name: userStores[0].name };
+    showView("categories");
+    await loadCategories();
+    return;
+  }
+  showView("stores");
+  await loadStores();
 }
 
 document.getElementById("registerAdminBtn").addEventListener("click", async () => {
@@ -3065,14 +3188,16 @@ function populateStoreSelect(select, storesList) {
 }
 
 async function loadAccounts() {
+  // 管理员看的是跨门店全局列表(每个账号可能在好几个门店、各自角色不一样),
+  // 不按 currentStore 过滤;非管理员(经理/班长/员工)只能看"当前这个门店"
+  // 跟自己同店的人,必须传 storeId(见 data.js listUsers 的权限设计)。
+  const storeId = isAdmin() ? undefined : (currentStore ? currentStore.id : undefined);
   const [usersResp, storesResp] = await Promise.all([
-    apiGet("listUsers", {}),
+    apiGet("listUsers", storeId ? { storeId } : {}),
     apiGet("listStores", {}),
   ]);
   const users = usersResp.users;
   const storesList = storesResp.stores;
-  // 后端 listUsers 已经按权限过滤过(管理员看全部门店,员工/班长/经理只看
-  // 自己那家,且四级里谁都看不到管理员账号本身)——这里不用再筛一遍。
   renderAccountsList(users, storesList);
   populateStoreSelect(document.getElementById("newEmpStore"), storesList);
   // "添加账号"整张卡片现在只有管理员能看到(2026-07-17 二次调整:一度放开给
@@ -3083,78 +3208,151 @@ async function loadAccounts() {
   document.getElementById("newEmpStoreRow").style.display = isAdmin() ? "block" : "none";
 }
 
+// 管理员视角:每个账号可能在好几个门店、各自角色不一样(u.storeRoles 数组)。
+// 非管理员视角:后端已经按"当前门店"过滤过,u.role/u.storeId 就是这个人在
+// 这家店的身份,跟老版本的单角色显示一样,不用画多门店列表。
 function renderAccountsList(users, storesList) {
   const el = document.getElementById("employeeUsersList");
   const emptyHint = document.getElementById("noEmployeesHint");
   el.innerHTML = "";
   emptyHint.style.display = users.length === 0 ? "block" : "none";
   users.forEach(u => {
-    const store = storesList.find(s => s.id === u.storeId);
-    const row = document.createElement("div");
-    row.className = "row";
-    // 重置密码只有管理员能做;删除账号管理员能删任何人,经理只能删同店的
-    // "员工"级账号(后端 deleteUserById 会再核一遍,这里只是不露出点了也会
-    // 被拒绝的按钮)。
-    //
-    // 改角色(2026-07-17 从"仅管理员"放开给经理/班长):谁能改谁——只能改
-    // "比自己等级低"的账号(经理能改班长/员工,班长只能改员工,管理员能改
-    // 除自己以外的所有人),下拉框的可选项也只到"自己当前的等级"为止(经理
-    // 最高能把人提到经理、班长最高能提到班长,谁都不能通过这里把人提到管理员
-    // ——那个太敏感,不是下拉框级别的操作)。后端 changeUserRole 会按同一套
-    // 规则再核一遍,这里只是不露出点了也会被拒绝的控件。
-    const canReset = isAdmin();
-    const canDelete = isAdmin() || (isManagerUp() && u.role === "employee");
-    const canChangeRole = isShiftLeaderUp() && (ROLE_LEVELS[u.role] || 0) < myLevel();
-    const SETTABLE_ROLES = [
-      { value: "employee", label: "员工" },
-      { value: "shift_leader", label: "班长" },
-      { value: "manager", label: "经理" },
-    ].filter(r => ROLE_LEVELS[r.value] <= myLevel());
-    const roleSelectHtml = canChangeRole
-      ? `<select data-action="role-select">
-          ${SETTABLE_ROLES.map(r => `<option value="${r.value}" ${u.role === r.value ? "selected" : ""}>${r.label}</option>`).join("")}
-        </select>`
-      : "";
-    row.innerHTML = `
-      <div class="name">${u.displayName} <small>${ROLE_LABELS[u.role] || u.role} · ${u.username} · ${store ? store.name : "门店已删除"}</small></div>
-      ${roleSelectHtml}
-      ${canReset ? '<button class="btn-ghost" data-action="reset">重置密码</button>' : ""}
-      ${canDelete ? '<button class="btn-ghost" data-action="delete">删除</button>' : ""}
-    `;
-    const roleSelect = row.querySelector('[data-action="role-select"]');
-    if (roleSelect) roleSelect.addEventListener("change", async (e) => {
-      const newRole = e.target.value;
-      try {
-        await apiPost("changeUserRole", { userId: u.id, newRole });
-        loadAccounts();
-      } catch (err) {
-        alert("改角色失败: " + err.message);
-        e.target.value = u.role; // 失败了把下拉框选回原来的值,不留一个跟实际状态不符的假象
-      }
-    });
-    const resetBtn = row.querySelector('[data-action="reset"]');
-    if (resetBtn) resetBtn.addEventListener("click", async () => {
-      const newPassword = prompt(`给「${u.displayName}」设置新密码:`);
-      if (!newPassword) return;
-      try {
-        await apiPost("resetPassword", { userId: u.id, newPassword });
-        alert("密码已重置。");
-      } catch (err) {
-        alert("重置失败: " + err.message);
-      }
-    });
-    const deleteBtn = row.querySelector('[data-action="delete"]');
-    if (deleteBtn) deleteBtn.addEventListener("click", async () => {
-      if (!confirm(`删除账号「${u.displayName}」(${ROLE_LABELS[u.role] || u.role})?`)) return;
-      try {
-        await apiPost("deleteUser", { userId: u.id });
-        loadAccounts();
-      } catch (err) {
-        alert("删除失败: " + err.message);
-      }
-    });
-    el.appendChild(row);
+    if (isAdmin()) renderAdminAccountRow(el, u, storesList);
+    else renderScopedAccountRow(el, u, storesList);
   });
+}
+
+const SETTABLE_ROLES_FOR = (level) => [
+  { value: "employee", label: "员工" },
+  { value: "shift_leader", label: "班长" },
+  { value: "manager", label: "经理" },
+].filter(r => ROLE_LEVELS[r.value] <= level);
+
+// 非管理员(经理/班长/员工)看到的一行,行为跟老版本一样——只是角色/门店
+// 现在来自后端按 currentStore 过滤后的结果,不是账号自己带的全局角色。
+function renderScopedAccountRow(el, u, storesList) {
+  const store = storesList.find(s => s.id === u.storeId);
+  const row = document.createElement("div");
+  row.className = "row";
+  // 改角色(2026-07-17 从"仅管理员"放开给经理/班长):只能改"在这家店比自己
+  // 等级低"的账号,下拉框最高只能到自己当前的等级——谁都不能通过这里把人
+  // 提到管理员。后端 setUserStoreRole 会按同一套规则再核一遍。
+  const canDelete = isManagerUp() && u.role === "employee";
+  const canChangeRole = isShiftLeaderUp() && (ROLE_LEVELS[u.role] || 0) < myLevel();
+  const roleSelectHtml = canChangeRole
+    ? `<select data-action="role-select">
+        ${SETTABLE_ROLES_FOR(myLevel()).map(r => `<option value="${r.value}" ${u.role === r.value ? "selected" : ""}>${r.label}</option>`).join("")}
+      </select>`
+    : "";
+  row.innerHTML = `
+    <div class="name">${u.displayName} <small>${ROLE_LABELS[u.role] || u.role} · ${u.username} · ${store ? store.name : "门店已删除"}</small></div>
+    ${roleSelectHtml}
+    ${canDelete ? '<button class="btn-ghost" data-action="delete">删除</button>' : ""}
+  `;
+  const roleSelect = row.querySelector('[data-action="role-select"]');
+  if (roleSelect) roleSelect.addEventListener("change", async (e) => {
+    const newRole = e.target.value;
+    try {
+      await apiPost("changeUserRole", { userId: u.id, storeId: u.storeId, newRole });
+      loadAccounts();
+    } catch (err) {
+      alert("改角色失败: " + err.message);
+      e.target.value = u.role;
+    }
+  });
+  const deleteBtn = row.querySelector('[data-action="delete"]');
+  if (deleteBtn) deleteBtn.addEventListener("click", async () => {
+    if (!confirm(`把「${u.displayName}」从这家店移除?`)) return;
+    try {
+      await apiPost("deleteUser", { userId: u.id, storeId: u.storeId });
+      loadAccounts();
+    } catch (err) {
+      alert("删除失败: " + err.message);
+    }
+  });
+  el.appendChild(row);
+}
+
+// 管理员看到的一行:名字/用户名 + 这个账号在每个门店的角色(可以有好几个),
+// 每条门店记录各自能改角色/移除;下面再加一个"添加到其他门店"的小表单。
+function renderAdminAccountRow(el, u, storesList) {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.flexDirection = "column";
+  row.style.alignItems = "stretch";
+  const grantsHtml = (u.storeRoles || []).map(g => `
+    <div class="row" style="padding:6px 0;">
+      <div class="name" style="font-size:13px;">${g.storeName || "门店已删除"}</div>
+      <select data-action="grant-role" data-store="${g.storeId}">
+        ${SETTABLE_ROLES_FOR(ROLE_LEVELS.admin).map(r => `<option value="${r.value}" ${g.role === r.value ? "selected" : ""}>${r.label}</option>`).join("")}
+      </select>
+      <button class="btn-ghost" data-action="grant-remove" data-store="${g.storeId}">移除</button>
+    </div>
+  `).join("");
+  const otherStores = storesList.filter(s => !(u.storeRoles || []).some(g => String(g.storeId) === String(s.id)));
+  const addGrantHtml = otherStores.length > 0 ? `
+    <div class="row" style="padding-top:6px;border-top:1px dashed var(--paper-dim);">
+      <select data-action="new-grant-store" style="flex:1;">
+        ${otherStores.map(s => `<option value="${s.id}">${s.name}</option>`).join("")}
+      </select>
+      <select data-action="new-grant-role">
+        ${SETTABLE_ROLES_FOR(ROLE_LEVELS.admin).map(r => `<option value="${r.value}">${r.label}</option>`).join("")}
+      </select>
+      <button class="btn-ghost" data-action="new-grant-add">＋ 添加到这家店</button>
+    </div>
+  ` : "";
+  row.innerHTML = `
+    <div class="name">${u.displayName} <small>${u.username}</small></div>
+    ${grantsHtml}
+    ${addGrantHtml}
+    <div class="row" style="padding-top:6px;">
+      <button class="btn-ghost" data-action="reset">重置密码</button>
+    </div>
+  `;
+  row.querySelectorAll('[data-action="grant-role"]').forEach(sel => sel.addEventListener("change", async (e) => {
+    const storeId = e.target.dataset.store;
+    const newRole = e.target.value;
+    try {
+      await apiPost("changeUserRole", { userId: u.id, storeId, newRole });
+      loadAccounts();
+    } catch (err) {
+      alert("改角色失败: " + err.message);
+      loadAccounts();
+    }
+  }));
+  row.querySelectorAll('[data-action="grant-remove"]').forEach(btn => btn.addEventListener("click", async (e) => {
+    const storeId = e.target.dataset.store;
+    if (!confirm(`把「${u.displayName}」从这家店移除?`)) return;
+    try {
+      await apiPost("removeUserStoreGrant", { userId: u.id, storeId });
+      loadAccounts();
+    } catch (err) {
+      alert("移除失败: " + err.message);
+    }
+  }));
+  const addBtn = row.querySelector('[data-action="new-grant-add"]');
+  if (addBtn) addBtn.addEventListener("click", async () => {
+    const storeId = row.querySelector('[data-action="new-grant-store"]').value;
+    const newRole = row.querySelector('[data-action="new-grant-role"]').value;
+    try {
+      await apiPost("changeUserRole", { userId: u.id, storeId, newRole });
+      loadAccounts();
+    } catch (err) {
+      alert("添加失败: " + err.message);
+    }
+  });
+  const resetBtn = row.querySelector('[data-action="reset"]');
+  resetBtn.addEventListener("click", async () => {
+    const newPassword = prompt(`给「${u.displayName}」设置新密码:`);
+    if (!newPassword) return;
+    try {
+      await apiPost("resetPassword", { userId: u.id, newPassword });
+      alert("密码已重置。");
+    } catch (err) {
+      alert("重置失败: " + err.message);
+    }
+  });
+  el.appendChild(row);
 }
 
 document.getElementById("addEmployeeBtn").addEventListener("click", async () => {
