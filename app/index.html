@@ -466,25 +466,23 @@
   .low-stock-digest-title {
     font-size: 11px; font-weight: 700; color: var(--ink-dim);
     text-transform: uppercase; letter-spacing: 0.03em;
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
     margin-bottom: 4px;
-  }
-  /* 算法说明——平时只是一句"查看预估依据"的小字,点开才展开这段解释,
-     不占默认视觉空间。 */
-  .low-stock-explain-toggle {
-    font-size: 10px; font-weight: 600; color: var(--gold-dark);
-    text-transform: none; letter-spacing: normal; cursor: pointer; flex-shrink: 0;
-  }
-  .low-stock-explain-body {
-    font-size: 11.5px; line-height: 1.6; color: var(--ink-dim);
-    background: var(--paper); border-radius: 8px;
-    padding: 8px 10px; margin: 2px 0 8px;
   }
   .low-stock-digest-row {
     display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
     padding: 7px 4px; border-radius: 8px; cursor: pointer;
   }
   .low-stock-digest-row:hover { background: rgba(36,28,53,0.05); }
+  /* 每行"库存偏低"物品自己的算法依据——缺货不用解释(0 库存不需要算),
+     只有偏低的行才有这个小字,点开才展开这一条具体的计算依据,平时收着。 */
+  .low-stock-detail-toggle {
+    font-size: 10px; font-weight: 600; color: var(--gold-dark); cursor: pointer;
+  }
+  .low-stock-detail-body {
+    flex-basis: 100%; font-size: 11.5px; line-height: 1.5; color: var(--ink-dim);
+    background: var(--paper); border-radius: 8px; padding: 6px 9px; margin-top: 2px;
+    cursor: default;
+  }
   .low-stock-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; align-self: center; }
   .low-stock-dot-out { background: var(--danger); }
   .low-stock-dot-low { background: var(--warn); }
@@ -1395,6 +1393,7 @@ async function selectCategory(cat) {
   todayInputs = {};
   stockSummaryExpanded = false;
   lowStockDigestExpanded = false;
+  lowStockRowDetailExpanded = new Set();
   entryTableExpanded = false;
   selectedItemIdsForDelete.clear();
   {
@@ -2042,15 +2041,20 @@ function lowStockLabel(lowStock) {
   return "库存偏低";
 }
 
-let lowStockExplainExpanded = false;
-// 三条判断规则跟后端 log.js computeLowStockStatuses 里的判断顺序逐条对应,
-// 短句罗列,不写成一整段长句。
-const LOW_STOCK_EXPLAIN_HTML = `
-  <div>· <b>缺货</b>:库存降到 0 或以下,不管有没有消耗记录,直接提醒。</div>
-  <div style="margin-top:6px;">· <b>库存偏低(有消耗记录)</b>:按最近 30 天的消耗记录算出日均消耗量,现在库存 ÷ 日均消耗算出大概还能维持多久,不到 2 天就提醒。</div>
-  <div style="margin-top:6px;">· <b>库存偏低(刚开始记录)</b>:消耗记录不满 1 周、算不出可靠的日均消耗时,改成参考建物品时填的起始库存,现在库存跌破起始库存的 20% 就提醒。</div>
-  <div style="margin-top:6px;">每次打开这个页面都会重新算一遍,不是存好不变的数字。</div>
-`;
+// 每一行"库存偏低"物品自己的计算依据(缺货是 0 库存,不需要解释,不生成这个)。
+// 用的是这个物品自己的真实数字,不是泛泛讲算法。
+function lowStockDetailText(it) {
+  const ls = it.lowStock;
+  if (ls.reason === "rate") {
+    return `最近 30 天日均消耗约 ${ls.avgDailyUsage}${it.unit},目前库存 ${it.totalStock}${it.unit},预计还能维持${formatDaysRemaining(ls.daysRemaining)}。`;
+  }
+  if (ls.reason === "fallback") {
+    return `消耗记录不满 1 周,参考建物品时的起始库存 ${it.startingStock}${it.unit},目前库存 ${it.totalStock}${it.unit},已经低于起始库存的 20%。`;
+  }
+  return "";
+}
+
+let lowStockRowDetailExpanded = new Set();
 
 // "目前总库存"标题下面的缺货/偏低清单——物品一多,光靠磁贴颜色要一个个找太慢,
 // 这里先给一份紧凑名单,点一行直接跳去下面对应的磁贴(复用 jumpToStockTile),
@@ -2071,30 +2075,41 @@ function renderLowStockDigest() {
   }
   wrap.style.display = "block";
   const visible = lowStockDigestExpanded ? flagged : flagged.slice(0, LOW_STOCK_DIGEST_PAGE_SIZE);
-  const rowsHtml = visible.map(it => `
+  const rowsHtml = visible.map(it => {
+    const detailOpen = lowStockRowDetailExpanded.has(it.id);
+    const detailToggle = it.lowStock.status === "low"
+      ? `<span class="low-stock-detail-toggle" data-detail-toggle="${it.id}">${detailOpen ? "收起" : "详情"}</span>`
+      : "";
+    const detailBody = (it.lowStock.status === "low" && detailOpen)
+      ? `<div class="low-stock-detail-body">${lowStockDetailText(it)}</div>` : "";
+    return `
     <div class="low-stock-digest-row" data-item-id="${it.id}">
       <span class="low-stock-dot low-stock-dot-${it.lowStock.status}"></span>
       <span class="low-stock-digest-name">${it.name}</span>
       <span class="low-stock-digest-detail">${lowStockLabel(it.lowStock)}</span>
+      ${detailToggle}
+      ${detailBody}
     </div>
-  `).join("");
+  `;
+  }).join("");
   const toggleHtml = flagged.length > LOW_STOCK_DIGEST_PAGE_SIZE
     ? `<div class="low-stock-digest-toggle" id="lowStockDigestToggle">${lowStockDigestExpanded ? "收起" : `展开全部(还有 ${flagged.length - LOW_STOCK_DIGEST_PAGE_SIZE} 项)`}</div>`
     : "";
-  const explainHtml = lowStockExplainExpanded ? `<div class="low-stock-explain-body">${LOW_STOCK_EXPLAIN_HTML}</div>` : "";
   wrap.innerHTML = `
-    <div class="low-stock-digest-title">
-      <span>缺货/库存偏低(${flagged.length})</span>
-      <span class="low-stock-explain-toggle" id="lowStockExplainToggle">${lowStockExplainExpanded ? "收起说明" : "查看预估依据"}</span>
-    </div>
-    ${explainHtml}${rowsHtml}${toggleHtml}
+    <div class="low-stock-digest-title">缺货/库存偏低(${flagged.length})</div>
+    ${rowsHtml}${toggleHtml}
   `;
   wrap.querySelectorAll(".low-stock-digest-row").forEach(row => {
     row.addEventListener("click", () => jumpToStockTile(row.dataset.itemId));
   });
-  document.getElementById("lowStockExplainToggle").addEventListener("click", () => {
-    lowStockExplainExpanded = !lowStockExplainExpanded;
-    renderLowStockDigest();
+  wrap.querySelectorAll("[data-detail-toggle]").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation(); // 别触发外层行的 jumpToStockTile
+      const id = el.dataset.detailToggle;
+      if (lowStockRowDetailExpanded.has(id)) lowStockRowDetailExpanded.delete(id);
+      else lowStockRowDetailExpanded.add(id);
+      renderLowStockDigest();
+    });
   });
   const toggleEl = document.getElementById("lowStockDigestToggle");
   if (toggleEl) toggleEl.addEventListener("click", () => { lowStockDigestExpanded = !lowStockDigestExpanded; renderLowStockDigest(); });
