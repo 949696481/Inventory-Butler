@@ -284,6 +284,26 @@
   .config-body.open { display: block; }
   .config-body input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--paper-dim); font-size: 13px; margin-bottom: 8px; }
   .config-body label { font-size: 12px; color: var(--ink-dim); display: block; margin-bottom: 4px; }
+
+  /* 下拉框原来完全没样式,跟旁边圆角紫边的 input 长得不一样(浏览器默认样式)。
+     统一成跟 input 一样的圆角/边框/字号,自己画一个金紫色小箭头替代系统箭头。 */
+  select {
+    padding: 10px 30px 10px 12px;
+    border-radius: 10px;
+    border: 1.5px solid var(--paper-dim);
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--ink);
+    background-color: var(--paper);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236641A0'%3E%3Cpath d='M5.5 7.5l4.5 5 4.5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+  }
+  .config-body select { width: 100%; margin-bottom: 8px; }
   .status-line { font-size: 12px; color: var(--ink-dim); margin-top: 8px; text-align: center; }
   .status-line.error { color: var(--danger); }
   .status-line.ok { color: var(--ok); }
@@ -427,9 +447,11 @@
      "目前总库存"标题下面加一条紧凑的缺货/偏低清单(见 #lowStockDigest),
      点一行直接跳去下面对应的磁贴(复用已有的 jumpToStockTile),不用跳新页面。
      缺货/偏低这行状态文字单独一行,不跟"点击修改"这类操作提示挤在同一行。 */
-  .stock-tile-status { font-size: 10px; font-weight: 700; margin-top: 6px; }
+  .stock-tile-status { font-size: 12px; font-weight: 700; margin-top: 6px; }
   /* 磁贴底色统一维持原来的淡紫色(--paper-dim),不额外换背景——只有数量
-     数字和状态文字变色,Kevin 明确要求过。 */
+     数字和状态文字变色,Kevin 明确要求过。充足(算出来确实没问题,不是"没
+     数据")用绿色,缺货预警的黄/红同理只改这两处。 */
+  .stock-tile-ok .stock-tile-value { color: var(--ok); }
   .stock-tile-low .stock-tile-value { color: var(--warn); }
   .stock-tile-low .stock-tile-status { color: var(--warn); }
   .stock-tile-out .stock-tile-value { color: var(--danger); }
@@ -443,7 +465,20 @@
   }
   .low-stock-digest-title {
     font-size: 11px; font-weight: 700; color: var(--ink-dim);
-    text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    margin-bottom: 4px;
+  }
+  /* 算法说明——平时只是一句"查看预估依据"的小字,点开才展开这段解释,
+     不占默认视觉空间。 */
+  .low-stock-explain-toggle {
+    font-size: 10px; font-weight: 600; color: var(--gold-dark);
+    text-transform: none; letter-spacing: normal; cursor: pointer; flex-shrink: 0;
+  }
+  .low-stock-explain-body {
+    font-size: 11.5px; line-height: 1.6; color: var(--ink-dim);
+    background: var(--paper); border-radius: 8px;
+    padding: 8px 10px; margin: 2px 0 8px;
   }
   .low-stock-digest-row {
     display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
@@ -836,20 +871,34 @@
     </div>
   </div>
 
-  <!-- 账号详情:从"账号管理"列表点某个人进来。管理员看到这个人在每个门店的
-       角色(可以有好几个)+ 能加到别的门店 + 重置密码;非管理员(经理/班长)
-       只看到这个人在"当前门店"的角色,能改的范围跟列表页原来一样受权限限制。 -->
+  <!-- 账号详情:从"账号管理"列表点某个人进来。管理员看到这个人的姓名/用户名
+       (能改)+ 在每个门店的角色(可以有好几个,能加到别的门店)+ 重置密码;
+       非管理员(经理/班长)只看到这个人在"当前门店"的角色,能改的范围跟列表页
+       原来一样受权限限制,看不到"基本信息"卡片(改名/改用户名只有管理员能做)。 -->
   <div class="view" id="view-account-detail" style="display:none;">
+    <div class="card" id="accountDetailProfileCard" style="display:none;">
+      <h2>基本信息</h2>
+      <div class="config-body open">
+        <label>姓名</label>
+        <input id="accountDetailDisplayName" placeholder="姓名">
+        <label>用户名</label>
+        <input id="accountDetailUsername" placeholder="登录用户名">
+        <button class="btn-secondary" id="accountDetailProfileSaveBtn" style="margin-top:8px;">保存</button>
+        <div class="status-line" id="accountDetailProfileStatus"></div>
+      </div>
+    </div>
     <div class="card">
       <h2>所在门店</h2>
       <div id="accountDetailGrants"></div>
     </div>
     <div class="card" id="accountDetailPasswordCard" style="display:none;">
       <h2>重置密码</h2>
-      <div class="hint" style="margin-bottom:8px;">密码是单向加密存的,看不到原密码,只能设一个新的。</div>
-      <input id="accountDetailNewPassword" type="password" placeholder="设置新密码">
-      <button class="btn-secondary" id="accountDetailResetBtn" style="margin-top:8px;">重置密码</button>
-      <div class="status-line" id="accountDetailResetStatus"></div>
+      <div class="config-body open">
+        <div class="hint" style="margin-bottom:8px;">密码是单向加密存的,看不到原密码,只能设一个新的。</div>
+        <input id="accountDetailNewPassword" type="password" placeholder="设置新密码">
+        <button class="btn-secondary" id="accountDetailResetBtn" style="margin-top:8px;">重置密码</button>
+        <div class="status-line" id="accountDetailResetStatus"></div>
+      </div>
     </div>
   </div>
 
@@ -1964,11 +2013,42 @@ async function loadItemsAndStock() {
   }
 }
 
+// 磁贴上只标"缺货"/"库存偏低",不带具体天数(天数只在下面的清单里给,
+// 磁贴要一眼扫过去,数字反而干扰)。
+function lowStockTileLabel(lowStock) {
+  return lowStock.status === "out" ? "缺货" : "库存偏低";
+}
+
+// 把消耗速度算法给出的精确天数(比如 1.4)换成半天为单位的口语化说法——
+// 精确到小数点后一位对使用者没有意义,反而显得像是在装精确;半天粒度更
+// 符合日常"还能撑多久"的直觉判断。0.35 天以下单独给"不到半天"(马上就要
+// 见底,不适合往上凑成"半天左右"这种还有点从容的说法);正好落在某个半天
+// 刻度上(0.5/1/1.5...)就不带"左右",不是刻度正中心就带"左右"。
+function formatDaysRemaining(days) {
+  if (days < 0.35) return "不到半天";
+  const cn = ["", "一", "两", "三", "四", "五", "六", "七", "八", "九", "十"];
+  const halfUnits = Math.max(1, Math.round(days / 0.5));
+  const bucketDays = halfUnits * 0.5;
+  const isExact = Math.abs(days - bucketDays) < 0.05;
+  const wholeDays = Math.floor(halfUnits / 2);
+  const hasHalf = halfUnits % 2 === 1;
+  const label = wholeDays === 0 ? "半天" : (cn[wholeDays] || wholeDays) + "天" + (hasHalf ? "半" : "");
+  return isExact ? label : label + "左右";
+}
+
 function lowStockLabel(lowStock) {
   if (lowStock.status === "out") return "缺货";
-  if (lowStock.reason === "rate") return `库存偏低 · 预计还能撑 ${lowStock.daysRemaining} 天`;
+  if (lowStock.reason === "rate") return `库存偏低 · 预计可维持${formatDaysRemaining(lowStock.daysRemaining)}`;
   return "库存偏低";
 }
+
+let lowStockExplainExpanded = false;
+const LOW_STOCK_EXPLAIN_HTML = `
+  库存偏低是这么估的:先看这个物品最近 30 天的消耗记录,算出平均每天大概
+  用掉多少;拿现在的库存 ÷ 日均消耗,估算大概还能维持多久,不到 2 天就提醒。
+  如果这个物品刚开始记录、消耗历史还不满 1 周,暂时算不出可靠的日均消耗,
+  会先参考建物品时填的起始库存做参照,现在库存跌破起始库存的 20% 就提醒。
+`;
 
 // "目前总库存"标题下面的缺货/偏低清单——物品一多,光靠磁贴颜色要一个个找太慢,
 // 这里先给一份紧凑名单,点一行直接跳去下面对应的磁贴(复用 jumpToStockTile),
@@ -1999,9 +2079,20 @@ function renderLowStockDigest() {
   const toggleHtml = flagged.length > LOW_STOCK_DIGEST_PAGE_SIZE
     ? `<div class="low-stock-digest-toggle" id="lowStockDigestToggle">${lowStockDigestExpanded ? "收起" : `展开全部(还有 ${flagged.length - LOW_STOCK_DIGEST_PAGE_SIZE} 项)`}</div>`
     : "";
-  wrap.innerHTML = `<div class="low-stock-digest-title">缺货/库存偏低(${flagged.length})</div>${rowsHtml}${toggleHtml}`;
+  const explainHtml = lowStockExplainExpanded ? `<div class="low-stock-explain-body">${LOW_STOCK_EXPLAIN_HTML}</div>` : "";
+  wrap.innerHTML = `
+    <div class="low-stock-digest-title">
+      <span>缺货/库存偏低(${flagged.length})</span>
+      <span class="low-stock-explain-toggle" id="lowStockExplainToggle">${lowStockExplainExpanded ? "收起说明" : "查看预估依据"}</span>
+    </div>
+    ${explainHtml}${rowsHtml}${toggleHtml}
+  `;
   wrap.querySelectorAll(".low-stock-digest-row").forEach(row => {
     row.addEventListener("click", () => jumpToStockTile(row.dataset.itemId));
+  });
+  document.getElementById("lowStockExplainToggle").addEventListener("click", () => {
+    lowStockExplainExpanded = !lowStockExplainExpanded;
+    renderLowStockDigest();
   });
   const toggleEl = document.getElementById("lowStockDigestToggle");
   if (toggleEl) toggleEl.addEventListener("click", () => { lowStockDigestExpanded = !lowStockDigestExpanded; renderLowStockDigest(); });
@@ -2036,10 +2127,11 @@ function renderStockSummary() {
   visibleItems.forEach(it => {
     const val = latestStockCheck[it.id];
     const tile = document.createElement("div");
-    tile.className = "stock-tile" + (it.lowStock ? " stock-tile-" + it.lowStock.status : "");
+    const statusClass = it.lowStock ? "stock-tile-" + it.lowStock.status : (val !== undefined ? "stock-tile-ok" : "");
+    tile.className = "stock-tile" + (statusClass ? " " + statusClass : "");
     tile.dataset.itemId = it.id;
     const hint = canEdit ? (val !== undefined ? "点击修改" : "暂无记录·点击设置") : (val !== undefined ? "" : "暂无记录");
-    const statusLabel = it.lowStock ? lowStockLabel(it.lowStock) : "";
+    const statusLabel = it.lowStock ? lowStockTileLabel(it.lowStock) : "";
     tile.innerHTML = `
       <div class="stock-tile-name">${it.name}</div>
       <div class="stock-tile-value">${val !== undefined ? val : "--"}<span class="unit">${it.unit}</span></div>
@@ -3341,14 +3433,16 @@ function renderAccountsList(users, storesList) {
   el.innerHTML = "";
   emptyHint.style.display = users.length === 0 ? "block" : "none";
   users.forEach(u => {
+    // 列表页只给概览用,不摆用户名/角色这些细节了(2026-08-25 改版:太满、
+    // 一眼看过去分不清重点)——只留"在哪些门店",角色/用户名/密码都挪进详情页。
     const summary = isAdmin()
-      ? ((u.storeRoles || []).map(g => `${g.storeName || "门店已删除"} · ${ROLE_LABELS[g.role] || g.role}`).join("  ·  ") || "还没有门店")
-      : `${(storesList.find(s => s.id === u.storeId) || {}).name || "门店已删除"} · ${ROLE_LABELS[u.role] || u.role}`;
+      ? ((u.storeRoles || []).map(g => g.storeName || "门店已删除").join("  ·  ") || "还没有门店")
+      : ((storesList.find(s => s.id === u.storeId) || {}).name || "门店已删除");
     const row = document.createElement("div");
     row.className = "row";
     row.style.cursor = "pointer";
     row.innerHTML = `
-      <div class="name">${u.displayName} <small>${u.username} · ${summary}</small></div>
+      <div class="name">${u.displayName} <small>${summary}</small></div>
       <span style="color:var(--gold-dark);font-size:18px;flex-shrink:0;">›</span>
     `;
     row.addEventListener("click", () => openAccountDetail(u));
@@ -3399,8 +3493,14 @@ function renderAccountDetail() {
   else renderScopedGrant(el, u, accountsStoresList);
   document.getElementById("accountDetailPasswordCard").style.display = isAdmin() ? "block" : "none";
   document.getElementById("accountDetailNewPassword").value = "";
-  const statusEl = document.getElementById("accountDetailResetStatus");
-  statusEl.className = "status-line"; statusEl.textContent = "";
+  const resetStatusEl = document.getElementById("accountDetailResetStatus");
+  resetStatusEl.className = "status-line"; resetStatusEl.textContent = "";
+  // 改姓名/用户名(2026-08-25 加):只有管理员能改,跟建号/重置密码同一档权限。
+  document.getElementById("accountDetailProfileCard").style.display = isAdmin() ? "block" : "none";
+  document.getElementById("accountDetailDisplayName").value = u.displayName;
+  document.getElementById("accountDetailUsername").value = u.username;
+  const profileStatusEl = document.getElementById("accountDetailProfileStatus");
+  profileStatusEl.className = "status-line"; profileStatusEl.textContent = "";
 }
 
 // 非管理员(经理/班长/员工)看到的详情:只有"当前门店"这一条,行为跟老版本
@@ -3507,6 +3607,24 @@ function renderAdminGrants(el, u, storesList) {
     }
   });
 }
+
+document.getElementById("accountDetailProfileSaveBtn").addEventListener("click", async () => {
+  const u = currentAccountUser;
+  if (!u) return;
+  const displayName = document.getElementById("accountDetailDisplayName").value.trim();
+  const username = document.getElementById("accountDetailUsername").value.trim();
+  const statusEl = document.getElementById("accountDetailProfileStatus");
+  if (!username) { statusEl.className = "status-line error"; statusEl.textContent = "用户名不能为空"; return; }
+  try {
+    await apiPost("updateUserProfile", { userId: u.id, username, displayName });
+    // refreshAccountDetail() 内部会重新渲染整个详情页(含清空这个状态提示),
+    // 所以"已保存"要等它跑完再设,不然一闪就没了。
+    await refreshAccountDetail();
+    document.getElementById("accountDetailProfileStatus").textContent = "已保存。";
+  } catch (err) {
+    statusEl.className = "status-line error"; statusEl.textContent = "保存失败: " + err.message;
+  }
+});
 
 document.getElementById("accountDetailResetBtn").addEventListener("click", async () => {
   const u = currentAccountUser;
