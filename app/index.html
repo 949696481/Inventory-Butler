@@ -421,14 +421,43 @@
   .stock-tile-hint { font-size: 10px; color: var(--gold-dark); margin-top: 6px; }
   .stock-tile-more { display: flex; align-items: center; justify-content: center; }
   .stock-tile-more .stock-tile-hint { color: var(--ink-dim); font-weight: 600; }
-  /* 低库存预警(见后端 log.js computeLowStockStatuses)——只用色块标三色,
-     不额外加页面/角标,跟"目前总库存"磁贴合并展示。 */
+  /* 低库存预警(见后端 log.js computeLowStockStatuses)——磁贴本身标三色,
+     不做分类页角标/独立预警页;但物品多的时候光靠色块要一个个找太慢,
+     "目前总库存"标题下面加一条紧凑的缺货/偏低清单(见 #lowStockDigest),
+     点一行直接跳去下面对应的磁贴(复用已有的 jumpToStockTile),不用跳新页面。
+     缺货/偏低这行状态文字单独一行,不跟"点击修改"这类操作提示挤在同一行。 */
+  .stock-tile-status { font-size: 10px; font-weight: 700; margin-top: 6px; }
   .stock-tile-low { background: #FBF0DC; }
   .stock-tile-low .stock-tile-value { color: var(--warn); }
-  .stock-tile-low .stock-tile-hint { color: var(--warn); }
+  .stock-tile-low .stock-tile-status { color: var(--warn); }
   .stock-tile-out { background: #F8E2DB; }
   .stock-tile-out .stock-tile-value { color: var(--danger); }
-  .stock-tile-out .stock-tile-hint { color: var(--danger); }
+  .stock-tile-out .stock-tile-status { color: var(--danger); }
+
+  .low-stock-digest {
+    background: var(--paper-dim);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .low-stock-digest-title {
+    font-size: 11px; font-weight: 700; color: var(--ink-dim);
+    text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px;
+  }
+  .low-stock-digest-row {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    padding: 7px 4px; border-radius: 8px; cursor: pointer;
+  }
+  .low-stock-digest-row:hover { background: rgba(36,28,53,0.05); }
+  .low-stock-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; align-self: center; }
+  .low-stock-dot-out { background: var(--danger); }
+  .low-stock-dot-low { background: var(--warn); }
+  .low-stock-digest-name { font-size: 13px; color: var(--ink); flex-shrink: 0; }
+  .low-stock-digest-detail { font-size: 12px; color: var(--ink-dim); }
+  .low-stock-digest-toggle {
+    font-size: 11px; color: var(--gold-dark); font-weight: 600;
+    padding: 6px 4px 2px; cursor: pointer;
+  }
 
   .item-search { position: relative; margin-bottom: 12px; }
   .item-search input {
@@ -611,6 +640,7 @@
 
     <div class="card" id="stockSummaryCard" style="display:none;">
       <h2>目前总库存</h2>
+      <div id="lowStockDigest" style="display:none;"></div>
       <div class="item-search" id="stockSummarySearch" style="display:none;">
         <input type="text" id="stockSummarySearchInput" placeholder="搜索物品…">
         <div class="item-search-dropdown" id="stockSummarySearchDropdown"></div>
@@ -1287,6 +1317,7 @@ async function selectCategory(cat) {
   editingEntry = null;
   todayInputs = {};
   stockSummaryExpanded = false;
+  lowStockDigestExpanded = false;
   entryTableExpanded = false;
   selectedItemIdsForDelete.clear();
   {
@@ -1605,6 +1636,8 @@ async function saveNoteEntriesIfAny(date) {
 // 这一部分通过参数区分。
 const ITEM_LIST_PAGE_SIZE = 20;
 let stockSummaryExpanded = false;
+let lowStockDigestExpanded = false;
+const LOW_STOCK_DIGEST_PAGE_SIZE = 6;
 let entryTableExpanded = false;
 
 function setupItemSearch(inputEl, dropdownEl, onJump) {
@@ -1903,24 +1936,71 @@ async function loadItemsAndStock() {
   }
 }
 
+function lowStockLabel(lowStock) {
+  if (lowStock.status === "out") return "缺货";
+  if (lowStock.reason === "rate") return `库存偏低 · 预计还能撑 ${lowStock.daysRemaining} 天`;
+  return "库存偏低";
+}
+
+// "目前总库存"标题下面的缺货/偏低清单——物品一多,光靠磁贴颜色要一个个找太慢,
+// 这里先给一份紧凑名单,点一行直接跳去下面对应的磁贴(复用 jumpToStockTile),
+// 不用跳新页面/新分类。清单本身超过 LOW_STOCK_DIGEST_PAGE_SIZE 项时折叠,
+// 跟磁贴网格自己的"展开全部"是两个独立的展开状态,互不影响。
+function renderLowStockDigest() {
+  const wrap = document.getElementById("lowStockDigest");
+  const flagged = items.filter(it => it.lowStock).sort((a, b) => {
+    if (a.lowStock.status !== b.lowStock.status) return a.lowStock.status === "out" ? -1 : 1;
+    const da = a.lowStock.daysRemaining !== undefined ? a.lowStock.daysRemaining : Infinity;
+    const db = b.lowStock.daysRemaining !== undefined ? b.lowStock.daysRemaining : Infinity;
+    return da - db;
+  });
+  if (flagged.length === 0) {
+    wrap.style.display = "none";
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.style.display = "block";
+  const visible = lowStockDigestExpanded ? flagged : flagged.slice(0, LOW_STOCK_DIGEST_PAGE_SIZE);
+  const rowsHtml = visible.map(it => `
+    <div class="low-stock-digest-row" data-item-id="${it.id}">
+      <span class="low-stock-dot low-stock-dot-${it.lowStock.status}"></span>
+      <span class="low-stock-digest-name">${it.name}</span>
+      <span class="low-stock-digest-detail">${lowStockLabel(it.lowStock)}</span>
+    </div>
+  `).join("");
+  const toggleHtml = flagged.length > LOW_STOCK_DIGEST_PAGE_SIZE
+    ? `<div class="low-stock-digest-toggle" id="lowStockDigestToggle">${lowStockDigestExpanded ? "收起" : `展开全部(还有 ${flagged.length - LOW_STOCK_DIGEST_PAGE_SIZE} 项)`}</div>`
+    : "";
+  wrap.innerHTML = `<div class="low-stock-digest-title">缺货/库存偏低(${flagged.length})</div>${rowsHtml}${toggleHtml}`;
+  wrap.querySelectorAll(".low-stock-digest-row").forEach(row => {
+    row.addEventListener("click", () => jumpToStockTile(row.dataset.itemId));
+  });
+  const toggleEl = document.getElementById("lowStockDigestToggle");
+  if (toggleEl) toggleEl.addEventListener("click", () => { lowStockDigestExpanded = !lowStockDigestExpanded; renderLowStockDigest(); });
+}
+
 function renderStockSummary() {
   const card = document.getElementById("stockSummaryCard");
   const el = document.getElementById("stockSummary");
   const searchWrap = document.getElementById("stockSummarySearch");
+  const digestWrap = document.getElementById("lowStockDigest");
   if (items.length === 0) {
     card.style.display = "none";
     searchWrap.style.display = "none";
+    digestWrap.style.display = "none";
     return;
   }
   if (!stockFieldId) {
     card.style.display = "block";
     searchWrap.style.display = "none";
+    digestWrap.style.display = "none";
     el.className = "";
     el.innerHTML = `<div class="empty">这个分类还没有设置"库存盘点"字段,点"管理字段"添加一个才能开始自动算库存/消耗</div>`;
     return;
   }
   card.style.display = "block";
   searchWrap.style.display = "block";
+  renderLowStockDigest();
   el.className = "stock-grid";
   el.innerHTML = "";
   const canEdit = isShiftLeaderUp();
@@ -1928,15 +2008,15 @@ function renderStockSummary() {
   visibleItems.forEach(it => {
     const val = latestStockCheck[it.id];
     const tile = document.createElement("div");
-    tile.className = "stock-tile" + (it.lowStock === "out" ? " stock-tile-out" : it.lowStock === "low" ? " stock-tile-low" : "");
+    tile.className = "stock-tile" + (it.lowStock ? " stock-tile-" + it.lowStock.status : "");
     tile.dataset.itemId = it.id;
-    let hint = canEdit ? (val !== undefined ? "点击修改" : "暂无记录·点击设置") : (val !== undefined ? "" : "暂无记录");
-    if (it.lowStock === "out") hint = "缺货" + (hint ? " · " + hint : "");
-    else if (it.lowStock === "low") hint = "库存偏低" + (hint ? " · " + hint : "");
+    const hint = canEdit ? (val !== undefined ? "点击修改" : "暂无记录·点击设置") : (val !== undefined ? "" : "暂无记录");
+    const statusLabel = it.lowStock ? lowStockLabel(it.lowStock) : "";
     tile.innerHTML = `
       <div class="stock-tile-name">${it.name}</div>
       <div class="stock-tile-value">${val !== undefined ? val : "--"}<span class="unit">${it.unit}</span></div>
-      <div class="stock-tile-hint">${hint}</div>
+      ${statusLabel ? `<div class="stock-tile-status">${statusLabel}</div>` : ""}
+      ${hint ? `<div class="stock-tile-hint">${hint}</div>` : ""}
     `;
     // 直接改总库存要求班长及以上——员工正常录入当天盘点(走"今天的记录"表格)
     // 照样会自动把新数值推进总库存,只是不能像这样绕开正常流程直接改这个数字。
