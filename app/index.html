@@ -654,6 +654,15 @@
         <div class="status-line" id="categoryFormStatus"></div>
       </div>
     </div>
+    <!-- 月度消耗表导出:整个门店一个 Excel 文件,每个分类一张工作表 -->
+    <div class="card" id="monthlyExportCard">
+      <h2>导出月度消耗表</h2>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="monthlyExportMonth" style="flex:1;"></select>
+        <button class="btn-secondary" id="monthlyExportBtn" style="width:auto;padding:10px 16px;white-space:nowrap;">导出 Excel</button>
+      </div>
+      <div class="status-line" id="monthlyExportStatus"></div>
+    </div>
   </div>
 
   <!-- 分类详情:每日录入 + 历史 + 物品/字段管理 -->
@@ -1378,6 +1387,140 @@ async function deleteCategory(categoryId) {
   categories = (await apiGet("listCategories", { storeId: currentStore.id })).categories;
   renderCategoryTiles();
 }
+
+// ---------- 导出月度消耗表 ----------
+// 整个门店一个 xlsx,每个分类一张工作表,列是 品名|规格|数量|总价格——
+// "规格"就是物品的单位(箱/罐/条),跟门店原来手工做的月度表格式对齐。
+// 纯前端:用现有的 listItems/getSettlementCurrency/getLog/getExchangeRates
+// 拉数据在浏览器里汇总,汇总规则跟"消耗汇总"卡片(renderSummary)一致,
+// 金额换算成各分类自己的结算货币。
+function populateMonthlyExportMonths() {
+  const select = document.getElementById("monthlyExportMonth");
+  const t = new Date();
+  const opts = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(t.getFullYear(), t.getMonth() - i, 1);
+    const value = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    opts.push(`<option value="${value}">${d.getFullYear()}年${d.getMonth() + 1}月${i === 0 ? "(本月,到今天为止)" : ""}</option>`);
+  }
+  select.innerHTML = opts.join("");
+  select.selectedIndex = 1; // 默认上个月——月度表一般是月初导出上一个完整的月
+}
+populateMonthlyExportMonths();
+
+// Excel 工作表名不能超过 31 个字符、不能含 []:*?/\ ,同一个文件里也不能重名
+function safeSheetName(name, used) {
+  let base = String(name || "分类").replace(/[\[\]:*?\/\\]/g, " ").trim().slice(0, 31) || "分类";
+  let n = base, i = 2;
+  while (used.has(n)) { const suffix = `(${i++})`; n = base.slice(0, 31 - suffix.length) + suffix; }
+  used.add(n);
+  return n;
+}
+
+async function buildMonthlyCategorySheet(cat, startStr, endStr, monthLabel) {
+  const today = new Date();
+  const [sy, sm] = startStr.split("-").map(Number);
+  const days = Math.ceil((today - new Date(sy, sm - 1, 1)) / 86400000) + 2;
+  const [itemsData, currency, logRows] = await Promise.all([
+    apiGet("listItems", { categoryId: cat.id }),
+    apiGet("getSettlementCurrency", { categoryId: cat.id }).then(r => r.currency || "CNY"),
+    apiGet("getLog", { categoryId: cat.id, days }).then(r => r.log || []),
+  ]);
+  const catItems = itemsData.items || [];
+
+  const totals = {};
+  (logRows).forEach(r => {
+    if (r.date < startStr || r.date > endStr) return;
+    if (r.usage === null || r.usage === undefined) return;
+    if (!totals[r.itemId]) totals[r.itemId] = { name: r.itemName, usage: 0, costs: [] };
+    totals[r.itemId].usage += Number(r.usage);
+    if (r.cost !== null && r.cost !== undefined) totals[r.itemId].costs.push(Number(r.cost));
+  });
+
+  // 只有物品货币跟结算货币不一样时才去拉汇率
+  let rates = null;
+  const needsRates = Object.keys(totals).some(id => {
+    const it = catItems.find(x => x.id === id);
+    return it && it.currency && it.currency !== currency;
+  });
+  if (needsRates) {
+    try { rates = (await apiGet("getExchangeRates", { base: currency })).rates; } catch (e) { rates = null; }
+  }
+
+  // 先按物品列表原有顺序,已删除但这个月有记录的物品排在最后
+  const orderedIds = catItems.map(it => it.id).filter(id => totals[id])
+    .concat(Object.keys(totals).filter(id => !catItems.some(it => it.id === id)));
+
+  const aoa = [
+    [`${currentStore.name} ${monthLabel} 消耗表 — ${cat.name}`],
+    ["品名", "规格", "数量", `总价格(${currency})`],
+  ];
+  let grandTotal = 0;
+  let hasUnconverted = false;
+  orderedIds.forEach(id => {
+    const t = totals[id];
+    if (Math.abs(t.usage) < 1e-9) return;
+    const it = catItems.find(x => x.id === id);
+    const itemCurrency = it && it.currency ? it.currency : currency;
+    const rawCost = t.costs.reduce((a, b) => a + b, 0);
+    let priceCell;
+    if (itemCurrency === currency) {
+      priceCell = Math.round(rawCost * 100) / 100;
+      grandTotal += rawCost;
+    } else if (rates && rates[itemCurrency]) {
+      const v = rawCost / rates[itemCurrency];
+      priceCell = Math.round(v * 100) / 100;
+      grandTotal += v;
+    } else {
+      priceCell = `${currencySymbol(itemCurrency)}${rawCost.toFixed(2)}(未换算)`;
+      hasUnconverted = true;
+    }
+    aoa.push([it ? it.name : t.name, it ? it.unit : "", Math.round(t.usage * 100) / 100, priceCell]);
+  });
+  const itemRowCount = aoa.length - 2;
+  if (itemRowCount === 0) aoa.push(["这个月没有消耗记录"]);
+  else aoa.push(["合计", "", "", Math.round(grandTotal * 100) / 100]);
+  if (hasUnconverted) aoa.push(["注:标(未换算)的金额汇率获取失败,没有计入合计"]);
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 34 }, { wch: 10 }, { wch: 10 }, { wch: 16 }];
+  ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+  return ws;
+}
+
+document.getElementById("monthlyExportBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("monthlyExportBtn");
+  const statusEl = document.getElementById("monthlyExportStatus");
+  const monthValue = document.getElementById("monthlyExportMonth").value; // "YYYY-MM"
+  if (!currentStore || !monthValue) return;
+  const [y, m] = monthValue.split("-").map(Number);
+  const startStr = `${monthValue}-01`;
+  const lastDay = new Date(y, m, 0);
+  const endStr = dateToStr(lastDay > new Date() ? new Date() : lastDay);
+  const monthLabel = `${y}年${m}月`;
+
+  btn.disabled = true;
+  btn.textContent = "导出中…";
+  statusEl.className = "status-line";
+  statusEl.textContent = "正在汇总各分类的消耗数据…";
+  try {
+    const cats = (await apiGet("listCategories", { storeId: currentStore.id })).categories || [];
+    if (cats.length === 0) throw new Error("这个门店还没有分类");
+    const sheets = await Promise.all(cats.map(c => buildMonthlyCategorySheet(c, startStr, endStr, monthLabel)));
+    const wb = XLSX.utils.book_new();
+    const used = new Set();
+    cats.forEach((c, i) => XLSX.utils.book_append_sheet(wb, sheets[i], safeSheetName(c.name, used)));
+    XLSX.writeFile(wb, `${currentStore.name}_${monthLabel}消耗表.xlsx`.replace(/[\\\/:*?"<>|]/g, "_"));
+    statusEl.className = "status-line ok";
+    statusEl.textContent = `已导出 ${monthLabel} 消耗表(${cats.length} 个分类)`;
+  } catch (err) {
+    statusEl.className = "status-line error";
+    statusEl.textContent = "导出失败: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "导出 Excel";
+  }
+});
 
 async function selectCategory(cat) {
   currentCategory = cat;

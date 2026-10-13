@@ -1,4 +1,4 @@
-const CACHE_NAME = "kucun-guanjia-v11";
+const CACHE_NAME = "kucun-guanjia-v12";
 const ASSETS = [
   "./index.html",
   "./config.js",
