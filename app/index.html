@@ -1437,12 +1437,18 @@ async function buildMonthlyCategorySheet(cat, startStr, endStr, monthLabel) {
     if (r.cost !== null && r.cost !== undefined) totals[r.itemId].costs.push(Number(r.cost));
   });
 
+  // 已删除的物品拿不到它自己的币种:同分类现有物品都是同一种币种就按那个算
+  // (店内库存这种全是 CNY 进价的分类),混着几种币种没法猜,返回 null 标"未换算"
+  const catCurrencies = [...new Set(catItems.map(it => it.currency || currency))];
+  const currencyOf = (id) => {
+    const it = catItems.find(x => x.id === id);
+    if (it) return it.currency || currency;
+    return catCurrencies.length === 1 ? catCurrencies[0] : null;
+  };
+
   // 只有物品货币跟结算货币不一样时才去拉汇率
   let rates = null;
-  const needsRates = Object.keys(totals).some(id => {
-    const it = catItems.find(x => x.id === id);
-    return it && it.currency && it.currency !== currency;
-  });
+  const needsRates = Object.keys(totals).some(id => { const c = currencyOf(id); return c && c !== currency; });
   if (needsRates) {
     try { rates = (await apiGet("getExchangeRates", { base: currency })).rates; } catch (e) { rates = null; }
   }
@@ -1461,10 +1467,13 @@ async function buildMonthlyCategorySheet(cat, startStr, endStr, monthLabel) {
     const t = totals[id];
     if (Math.abs(t.usage) < 1e-9) return;
     const it = catItems.find(x => x.id === id);
-    const itemCurrency = it && it.currency ? it.currency : currency;
+    const itemCurrency = currencyOf(id);
     const rawCost = t.costs.reduce((a, b) => a + b, 0);
     let priceCell;
-    if (itemCurrency === currency) {
+    if (!itemCurrency) {
+      priceCell = `${rawCost.toFixed(2)}(币种未知,未换算)`;
+      hasUnconverted = true;
+    } else if (itemCurrency === currency) {
       priceCell = Math.round(rawCost * 100) / 100;
       grandTotal += rawCost;
     } else if (rates && rates[itemCurrency]) {
@@ -1475,12 +1484,12 @@ async function buildMonthlyCategorySheet(cat, startStr, endStr, monthLabel) {
       priceCell = `${currencySymbol(itemCurrency)}${rawCost.toFixed(2)}(未换算)`;
       hasUnconverted = true;
     }
-    aoa.push([it ? it.name : t.name, it ? it.unit : "", Math.round(t.usage * 100) / 100, priceCell]);
+    aoa.push([it ? it.name : `${t.name}(已删除)`, it ? it.unit : "", Math.round(t.usage * 100) / 100, priceCell]);
   });
   const itemRowCount = aoa.length - 2;
   if (itemRowCount === 0) aoa.push(["这个月没有消耗记录"]);
   else aoa.push(["合计", "", "", Math.round(grandTotal * 100) / 100]);
-  if (hasUnconverted) aoa.push(["注:标(未换算)的金额汇率获取失败,没有计入合计"]);
+  if (hasUnconverted) aoa.push(["注:标「未换算」的金额(汇率获取失败,或已删除物品的币种未知)没有计入合计"]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 34 }, { wch: 10 }, { wch: 10 }, { wch: 16 }];
