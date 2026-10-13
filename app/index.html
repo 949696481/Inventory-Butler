@@ -655,7 +655,7 @@
       </div>
     </div>
     <!-- 月度消耗表导出:整个门店一个 Excel 文件,每个分类一张工作表 -->
-    <div class="card" id="monthlyExportCard">
+    <div class="card" id="monthlyExportCard" style="display:none;">
       <h2>导出月度消耗表</h2>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="monthlyExportMonth" style="flex:1;"></select>
@@ -1184,6 +1184,8 @@ function showView(name) {
     // 这种情况下也要能"返回"去重新选门店,不能只让管理员看到返回按钮。
     backBtn.style.display = (isAdmin() || (currentUser && (currentUser.stores || []).length > 1)) ? "inline-block" : "none";
     manageBtn.style.display = isShiftLeaderUp() ? "inline-block" : "none";
+    // 月度消耗表只给管理员和这个门店的经理用,班长/员工看不到这张卡片
+    document.getElementById("monthlyExportCard").style.display = isManagerUp() ? "block" : "none";
     title.textContent = currentStore.name;
     subtitle.textContent = "选择分类";
   } else if (name === "detail") {
@@ -1501,7 +1503,7 @@ document.getElementById("monthlyExportBtn").addEventListener("click", async () =
   const btn = document.getElementById("monthlyExportBtn");
   const statusEl = document.getElementById("monthlyExportStatus");
   const monthValue = document.getElementById("monthlyExportMonth").value; // "YYYY-MM"
-  if (!currentStore || !monthValue) return;
+  if (!currentStore || !monthValue || !isManagerUp()) return;
   const [y, m] = monthValue.split("-").map(Number);
   const startStr = `${monthValue}-01`;
   const lastDay = new Date(y, m, 0);
